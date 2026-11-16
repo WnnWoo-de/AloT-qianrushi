@@ -1,0 +1,62 @@
+<view class="container">
+  <view class="card notice-danger emergency-hero">
+    <view class="section-title">手动紧急报警</view>
+    <view class="subtitle">用于护工现场发现异常时主动上报，事件将进入报警中心并同步相关值班人员。</view>
+  </view>
+
+  <view class="card form-panel">
+    <view class="form-item">
+      <view class="form-label">选择老人</view>
+      <picker range="{{elders}}" range-key="name" value="{{elderIndex}}" bindchange="bindElderChange">
+        <view class="picker">{{elders[elderIndex].name}} · {{elders[elderIndex].roomNo}}</view>
+      </picker>
+    </view>
+
+    <view class="form-item">
+      <view class="form-label">报警类型</view>
+      <picker range="{{emergencyTypeOptions}}" value="{{emergencyTypeIndex}}" bindchange="bindEmergencyTypeChange">
+        <view class="picker">{{emergencyTypeOptions[emergencyTypeIndex]}}</view>
+      </picker>
+    </view>
+
+    <view class="form-item">
+      <view class="form-label">紧急等级</view>
+      <picker range="{{emergencyLevelOptions}}" value="{{emergencyLevelIndex}}" bindchange="bindEmergencyLevelChange">
+        <view class="picker">{{emergencyLevelOptions[emergencyLevelIndex]}}</view>
+      </picker>
+    </view>
+
+    <view class="form-item">
+      <view class="form-label">事发位置</view>
+      <input class="input" placeholder="如：A-203 房间 / 一层活动室" bindinput="bindLocationInput" value="{{location}}" />
+    </view>
+
+    <view class="form-item">
+      <view class="form-label">现场描述</view>
+      <textarea class="textarea" placeholder="请描述现场情况、初步处置和是否已通知护士站..." bindinput="bindNoteInput" value="{{note}}"></textarea>
+    </view>
+
+    <button class="btn-danger form-submit-btn" bindtap="triggerAlert">立即报警</button>
+  </view>
+
+  <view class="card">
+    <view class="section-title">手动报警记录</view>
+    <block wx:if="{{alerts.length}}">
+      <block wx:for="{{alerts}}" wx:key="id">
+        <view class="list-item">
+          <view class="row align-start">
+            <view class="list-item-title">{{item.elderName}} · {{item.alertType}}</view>
+            <view class="tag tag-red">{{item.level}}</view>
+          </view>
+          <view class="list-item-desc">位置：{{item.location}} ｜ {{item.createdAt}}</view>
+          <view class="list-item-desc">{{item.note}}</view>
+          <view class="tag-list">
+            <view class="tag">{{item.status}}</view>
+            <view class="tag">{{item.roomNo}}</view>
+          </view>
+        </view>
+      </block>
+    </block>
+    <view wx:else class="empty-wrap">暂无手动报警记录</view>
+  </view>
+</view>

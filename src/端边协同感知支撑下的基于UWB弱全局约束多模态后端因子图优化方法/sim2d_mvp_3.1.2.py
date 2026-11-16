@@ -1,0 +1,1460 @@
+# ============================================================
+# sim2d_mvp_3.1.2
+# 2D 双车 + Anchor-UWB 后端数值仿真（诊断式统一可靠性加权图，dead-zone + UWB 更敏感版）
+#
+# 【本版本目标】
+# 在 3.1.1 的 odom 诊断解耦版基础上，
+# 进一步增强模态选择性，得到 3.1.2 版本。
+#
+# 3.1.1 的主要问题是：
+# 1) s_lio / s_rtab 虽已从融合残差中解耦，但仍然缺少 dead-zone，
+#    健康 odom 的正常波动仍会被轻度降权；
+# 2) s_uwb1 / s_uwb2 的映射仍偏保守，
+#    对 NLOS 引起的大残差不够敏感；
+# 3) 导致在 uwb_only 场景下，odom 不够“接近 1”，而 UWB 也不够“明显下降”。
+#
+# 3.1.2 的核心改进是：
+# 1) 为 odom reliability 映射加入 dead-zone：
+#    只有当 diagnostic error 超过安全区后，才开始降权；
+# 2) 为 UWB reliability 单独设计更敏感的映射函数；
+# 3) 将 UWB 每帧误差聚合从“温和平均”改为“均值 + 最大值”的更敏感聚合；
+# 4) 对 UWB 几何覆盖度施加更强惩罚，使差几何下的 UWB 权重更容易下降。
+#
+# ------------------------------------------------------------
+# 【本版本核心思想】
+# 3.1.2 仍然采用两阶段流程：
+#
+# Stage-0:
+#   先在不使用 diagnostic reliability weighting 的情况下，
+#   运行一遍基础图优化，得到一个初步轨迹估计。
+#
+# Stage-1:
+#   基于两类不同来源构造 reliability：
+#   - odom 模态：
+#       由 odom 自身局部一致性构造；
+#       并通过带 dead-zone 的映射函数转换为 s_lio / s_rtab
+#   - UWB 模态：
+#       由 stage-0 轨迹上的 UWB 白化残差聚合量 + 几何覆盖度构造；
+#       并通过更敏感的映射函数转换为 s_uwb1 / s_uwb2
+#
+# ------------------------------------------------------------
+# 【本版本与 3.1.1 的区别】
+# 1. 3.1.1 的 odom / UWB 共用同一类 error->reliability 映射
+# 2. 3.1.2 将 odom 和 UWB 的映射彻底分开
+# 3. 3.1.2 为 odom 增加 dead-zone
+# 4. 3.1.2 为 UWB 增加更敏感的残差聚合和更强的几何惩罚
+#
+# ------------------------------------------------------------
+# 【本版本希望达到的效果】
+# 1) 在 uwb_only 场景下：
+#    s_lio ≈ 1, s_rtab ≈ 1, s_uwb1 / s_uwb2 明显下降
+# 2) 在 lio_only 场景下：
+#    s_lio 明显下降，而 s_rtab / s_uwb 不被系统性误伤
+# 3) 在 rtab_only 场景下：
+#    s_rtab 明显下降，而 s_lio / s_uwb 不被系统性误伤
+#
+# ------------------------------------------------------------
+# 【本版本图模型】
+# 1. 优化变量仍然只有两条轨迹，不引入显式 reliability 状态变量
+# 2. 仍然采用模态级时变权重：
+#    - 车1 odom 第 k 个因子使用 s_lio(k)
+#    - 车2 odom 第 k 个因子使用 s_rtab(k)
+#    - 车1 第 k 帧所有 UWB 因子共享 s_uwb1(k)
+#    - 车2 第 k 帧所有 UWB 因子共享 s_uwb2(k)
+# 3. 对任一白化残差 e，实际送入优化的残差仍为：
+#    r = sqrt(s) * e
+#
+# ------------------------------------------------------------
+# 【本版本意义】
+# 3.1.2 是 3.1.1 的直接增强版。
+# 它不改变 diagnostic-weighted graph 的版本边界，
+# 只强化 reliability mapping 的选择性：
+# odom 更宽容，UWB 更敏感。
+# ============================================================
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import least_squares
+
+
+# 轨迹长度
+NUM_STEPS_1 = 60
+NUM_STEPS_2 = 60
+
+# Anchor 坐标（世界系）
+ANCHORS = np.array([
+    [0.0, 0.0],
+    [10.0, 0.0],
+    [10.0, 8.0],
+    [0.0, 8.0]
+])
+
+# Robot1 真值轨迹参数
+GT1_CENTER_X = 4.0
+GT1_CENTER_Y = 4.0
+GT1_RADIUS_X = 2.5
+GT1_RADIUS_Y = 1.5
+GT1_PHASE = 0.0
+
+# Robot2 真值轨迹参数
+GT2_CENTER_X = 5.2
+GT2_CENTER_Y = 3.0
+GT2_RADIUS_X = 2.0
+GT2_RADIUS_Y = 1.2
+GT2_PHASE = 0.5
+
+# Robot1 odom 测量误差参数
+ODOM1_SIGMA_XY = 0.03
+ODOM1_SIGMA_YAW = 0.01
+ODOM1_BIAS_XY = (0.004, -0.002)
+ODOM1_BIAS_YAW = 0.0015
+
+# Robot2 odom 测量误差参数
+ODOM2_SIGMA_XY = 0.04
+ODOM2_SIGMA_YAW = 0.015
+ODOM2_BIAS_XY = (0.006, 0.003)
+ODOM2_BIAS_YAW = -0.002
+
+# UWB LOS 测距误差参数
+UWB_SIGMA_R = 0.15
+
+# 优化中使用的残差权重参数（对应标准差）
+SIGMA_PRIOR_XY = 0.02
+SIGMA_PRIOR_YAW = 0.02
+SIGMA_ODOM_XY = 0.05
+SIGMA_ODOM_YAW = 0.03
+SIGMA_UWB = UWB_SIGMA_R
+
+# =========================
+# 1.2 版新增：更真实的先验设置
+# =========================
+
+# Robot2 的优化初值（注意：这是 initial guess，不是先验约束）
+# 它故意不等于 gt2[0]，表示车2一开始并不知道自己的真实全局位置
+ROBOT2_INIT_GUESS = np.array([1.0, 1.0, 0.2])
+
+# 是否给 Robot2 一个很弱的先验
+# 1.2 严格版建议设为 False
+USE_ROBOT2_WEAK_PRIOR = False
+
+# 如果你将来想测试“车2有一个很弱的粗先验”，可以打开上面的开关，
+# 并使用下面两个参数
+SIGMA_WEAK_PRIOR2_XY = 5.0
+SIGMA_WEAK_PRIOR2_YAW = 1.5
+
+
+
+# =========================
+# 1.3 版新增：baseline / 消融开关
+# =========================
+
+# 可选模式：
+# 1) "odom_only"
+# 2) "dual_prior_all_anchors"
+# 3) "single_prior_all_anchors"
+# 4) "single_prior_partial_anchors"
+BASELINE_MODE = "single_prior_partial_anchors"
+
+# 是否启用 UWB（由 baseline_mode 自动决定，通常不手动改）
+# 这里只保留给你调试时备用
+FORCE_USE_UWB = None   # None 表示跟随 BASELINE_MODE；True/False 表示强制覆盖
+
+
+
+# 部分可见时，每个时刻可见 anchor 数范围
+MIN_VISIBLE_ANCHORS = 2
+MAX_VISIBLE_ANCHORS = 4
+
+
+
+
+# =========================
+# 2.0 版新增：NLOS 配置
+# =========================
+
+# UWB 测量误差模式：
+# "los"        -> 纯 LOS（即 1.3 行为）
+# "mixed_nlos" -> LOS + NLOS 混合
+UWB_ERROR_MODE = "mixed_nlos"
+
+# 每条“可见的”UWB 测量成为 NLOS 的概率
+NLOS_PROB = 0.30
+
+# NLOS 正偏置大小（单位：m）
+# 推荐先做中等强度，不要一上来太极端
+NLOS_BIAS_MEAN = 1.2
+NLOS_BIAS_STD = 0.35
+
+# 为避免出现负偏置或过大偏置，做截断
+NLOS_BIAS_MIN = 0.4
+NLOS_BIAS_MAX = 2.5
+
+# =========================
+# 2.0 版新增：可重复随机源
+# 目的：让 1.3 / 2.0 在同一可见性 realization 下严格对比
+# =========================
+SEED_MAIN = 42          # 保留给 odom 等未拆分随机项
+SEED_VIS_R1 = 1001
+SEED_VIS_R2 = 1002
+SEED_UWB_LOS_R1 = 2001
+SEED_UWB_LOS_R2 = 2002
+SEED_UWB_NLOS_R1 = 3001
+SEED_UWB_NLOS_R2 = 3002
+
+
+
+# =========================
+# 3.1 版新增：diagnostic 统一可靠性配置
+# =========================
+USE_RELIABILITY_WEIGHTING = True
+
+# reliability 下界，避免某类因子权重退成 0
+RELIABILITY_FLOOR = 0.10
+
+# 3.1 的实验场景（只决定“如何注入退化”，不再直接生成 s）
+# "uwb_only"        : 只让 UWB 退化
+# "lio_only"        : 只让车1 odom 退化
+# "rtab_only"       : 只让车2 odom 退化
+# "dual_lio_uwb"    : 车1 odom + UWB 同时退化
+# "dual_rtab_uwb"   : 车2 odom + UWB 同时退化
+# "mixed_all"       : 三者都退化
+DEGRADATION_CASE = "uwb_only"
+
+# 车1 odom ≈ LIO（这里只保留“数据注入”用途，不再直接生成 s_lio）
+LIO_DEGRADE_WINDOWS = [(18, 30)]
+LIO_SIGMA_SCALE_DEG = 4.0
+LIO_BIAS_SCALE_DEG = 3.0
+
+# 车2 odom ≈ RTAB（这里只保留“数据注入”用途，不再直接生成 s_rtab）
+RTAB_DEGRADE_WINDOWS = [(22, 36)]
+RTAB_SIGMA_SCALE_DEG = 5.0
+RTAB_BIAS_SCALE_DEG = 3.0
+
+# ---------- 3.1 的两阶段求解配置 ----------
+# Stage-0: 先做一遍不加 reliability weighting 的基础优化
+STAGE0_MAX_NFEV = 300
+
+# Stage-1: 再做 diagnostic-weighted 优化
+STAGE1_MAX_NFEV = 1000
+
+# ---------- diagnostic -> reliability 映射参数 ----------
+# odom：更宽容
+DIAG_MAD_SCALE_ODOM = 6.0
+
+# UWB：更敏感
+DIAG_MAD_SCALE_UWB = 2.8
+
+# 时序平滑窗口
+DIAG_SMOOTH_WIN = 5
+
+# odom 局部一致性诊断参数
+ODOM_DIAG_HALF_WINDOW = 5
+ODOM_DIFF_WEIGHT = 0.50
+
+# 3.1.2 新增：odom dead-zone 参数
+# z <= ODOM_DEADZONE_Z 时保持 s≈1
+ODOM_DEADZONE_Z = 0.80
+ODOM_DROP_POWER = 2.0
+
+# 3.1.2 新增：UWB 更敏感映射参数
+# dead-zone 很小，让 UWB 一有明显异常就开始掉
+UWB_DEADZONE_Z = 0.15
+UWB_DROP_SHARPNESS = 1.60
+
+# UWB 几何覆盖度混合系数
+# 取更小，让差几何时掉得更明显
+UWB_GEOM_BLEND = 0.20
+
+# 是否打印 stage-0 RMSE
+PRINT_STAGE0_RMSE = True
+
+
+
+# =========================
+# 基础工具函数
+# =========================
+def wrap_angle(theta):
+    """将角度限制到 [-pi, pi]"""
+    return (theta + np.pi) % (2 * np.pi) - np.pi
+
+
+def pose_compose(pose, delta):
+    """
+    2D位姿复合
+    pose:  [x, y, yaw]
+    delta: [dx_body, dy_body, dyaw]
+    """
+    x, y, yaw = pose
+    dx, dy, dyaw = delta
+
+    c = np.cos(yaw)
+    s = np.sin(yaw)
+
+    x_new = x + c * dx - s * dy
+    y_new = y + s * dx + c * dy
+    yaw_new = wrap_angle(yaw + dyaw)
+
+    return np.array([x_new, y_new, yaw_new])
+
+
+def relative_pose(pose_i, pose_j):
+    """
+    根据世界系下两个位姿，计算 i->j 的相对位姿（以 i 的 body 系表示）
+    """
+    xi, yi, thi = pose_i
+    xj, yj, thj = pose_j
+
+    dx = xj - xi
+    dy = yj - yi
+
+    c = np.cos(thi)
+    s = np.sin(thi)
+
+    dx_body = c * dx + s * dy
+    dy_body = -s * dx + c * dy
+    dth = wrap_angle(thj - thi)
+
+    return np.array([dx_body, dy_body, dth])
+
+
+def sample_truncated_gaussian(mean, std, vmin, vmax, rng):
+    """
+    从截断高斯中采样，确保偏置为正且落在合理范围内
+    """
+    for _ in range(100):
+        x = rng.normal(loc=mean, scale=std)
+        if vmin <= x <= vmax:
+            return x
+    return np.clip(mean, vmin, vmax)
+
+
+def generate_visibility_schedule(num_steps, num_anchors,
+                                 visibility_mode="all",
+                                 min_visible=2,
+                                 max_visible=4,
+                                 rng_vis=None):
+    """
+    预生成每一帧的可见 anchor 集合。
+    这样 1.3 和 2.0 就能复用同一套 visibility realization。
+    """
+    if rng_vis is None:
+        rng_vis = np.random.default_rng()
+
+    visible_ids_per_step = []
+
+    for _ in range(num_steps):
+        if visibility_mode == "all":
+            visible_ids = np.arange(num_anchors, dtype=int)
+
+        elif visibility_mode == "partial_random":
+            max_visible_eff = min(max_visible, num_anchors)
+            min_visible_eff = min(min_visible, max_visible_eff)
+            n_visible = rng_vis.integers(min_visible_eff, max_visible_eff + 1)
+            visible_ids = rng_vis.choice(num_anchors, size=n_visible, replace=False)
+            visible_ids = np.array(visible_ids, dtype=int)
+
+        else:
+            raise ValueError(f"Unknown visibility_mode: {visibility_mode}")
+
+        visible_ids_per_step.append(visible_ids)
+
+    return visible_ids_per_step
+
+# =========================
+# 生成两车真值轨迹
+# =========================
+def generate_truth_traj(center_x, center_y, radius_x, radius_y, phase, N):
+    traj = []
+    for k in range(N):
+        t = 2.0 * np.pi * k / N + phase
+        x = center_x + radius_x * np.cos(t)
+        y = center_y + radius_y * np.sin(t)
+
+        t2 = 2.0 * np.pi * ((k + 1) % N) / N + phase
+        x2 = center_x + radius_x * np.cos(t2)
+        y2 = center_y + radius_y * np.sin(t2)
+        yaw = np.arctan2(y2 - y, x2 - x)
+
+        traj.append([x, y, yaw])
+
+    return np.array(traj)
+
+
+# =========================
+# 模拟里程计测量
+# =========================
+def simulate_odom(traj, sigma_xy=0.03, sigma_yaw=0.01,
+                  bias_xy=(0.0, 0.0), bias_yaw=0.0,
+                  sigma_scale_series=None,
+                  bias_scale_series=None):
+    """
+    输入真值轨迹，输出相邻帧 odom 测量
+    支持时变退化：sigma / bias 可按时间段放大
+    """
+    zs = []
+    for k in range(len(traj) - 1):
+        z = relative_pose(traj[k], traj[k + 1]).copy()
+
+        sigma_scale = 1.0 if sigma_scale_series is None else sigma_scale_series[k]
+        bias_scale = 1.0 if bias_scale_series is None else bias_scale_series[k]
+
+        # 时变偏置
+        z[0] += bias_xy[0] * bias_scale
+        z[1] += bias_xy[1] * bias_scale
+        z[2] += bias_yaw * bias_scale
+
+        # 时变噪声
+        z[0] += np.random.randn() * sigma_xy * sigma_scale
+        z[1] += np.random.randn() * sigma_xy * sigma_scale
+        z[2] += np.random.randn() * sigma_yaw * sigma_scale
+        z[2] = wrap_angle(z[2])
+
+        zs.append(z)
+
+    return np.array(zs)
+
+
+# =========================
+# 模拟 UWB anchor-range 测量
+# =========================
+def simulate_uwb(traj, anchors, sigma_r=0.08,
+                 error_mode="los",
+                 nlos_prob=0.0,
+                 nlos_bias_mean=1.2,
+                 nlos_bias_std=0.35,
+                 nlos_bias_min=0.4,
+                 nlos_bias_max=2.5,
+                 visible_ids_per_step=None,
+                 rng_los=None,
+                 rng_nlos=None):
+    """
+    对每个时刻生成 UWB anchor-range 测量
+
+    visible_ids_per_step[k] 给定第 k 帧哪些 anchor 可见
+
+    返回:
+        (k, anchor_id, measured_range, is_nlos, nlos_bias)
+    """
+    if visible_ids_per_step is None:
+        raise ValueError("visible_ids_per_step must be provided for reproducible experiments.")
+
+    if rng_los is None:
+        rng_los = np.random.default_rng()
+    if rng_nlos is None:
+        rng_nlos = np.random.default_rng()
+
+    measurements = []
+
+    for k in range(len(traj)):
+        px, py, _ = traj[k]
+        p = np.array([px, py])
+        visible_ids = visible_ids_per_step[k]
+
+        for m in visible_ids:
+            a = anchors[m]
+            r_true = np.linalg.norm(p - a)
+
+            # LOS 基础测距噪声
+            r_meas = r_true + rng_los.normal(loc=0.0, scale=sigma_r)
+
+            # NLOS 污染
+            is_nlos = False
+            nlos_bias = 0.0
+
+            if error_mode == "mixed_nlos":
+                if rng_nlos.random() < nlos_prob:
+                    is_nlos = True
+                    nlos_bias = sample_truncated_gaussian(
+                        mean=nlos_bias_mean,
+                        std=nlos_bias_std,
+                        vmin=nlos_bias_min,
+                        vmax=nlos_bias_max,
+                        rng=rng_nlos
+                    )
+                    r_meas += nlos_bias
+
+            elif error_mode != "los":
+                raise ValueError(f"Unknown error_mode: {error_mode}")
+
+            measurements.append((k, int(m), r_meas, is_nlos, nlos_bias))
+
+    return measurements
+
+
+
+def summarize_uwb_measurements(measurements, name="UWB"):
+    total = len(measurements)
+    nlos_flags = [int(meas[3]) for meas in measurements]
+    nlos_count = sum(nlos_flags)
+    los_count = total - nlos_count
+
+    nlos_biases = [meas[4] for meas in measurements if meas[3]]
+    mean_bias = np.mean(nlos_biases) if len(nlos_biases) > 0 else 0.0
+
+    print(f"\n[{name}] total measurements = {total}")
+    print(f"[{name}] LOS count          = {los_count}")
+    print(f"[{name}] NLOS count         = {nlos_count}")
+    print(f"[{name}] NLOS ratio         = {nlos_count / total:.3f}" if total > 0 else f"[{name}] NLOS ratio         = 0.000")
+    print(f"[{name}] mean NLOS bias     = {mean_bias:.3f} m")
+
+
+def fill_windows(length, windows, normal_val, degraded_val):
+    arr = np.full(length, normal_val, dtype=float)
+    for a, b in windows:
+        a = max(0, a)
+        b = min(length, b)
+        arr[a:b] = degraded_val
+    return arr
+
+
+def fill_windows_scale(length, windows, normal_scale, degraded_scale):
+    arr = np.full(length, normal_scale, dtype=float)
+    for a, b in windows:
+        a = max(0, a)
+        b = min(length, b)
+        arr[a:b] = degraded_scale
+    return arr
+
+
+def summarize_reliability_series(series, name="Reliability"):
+    if len(series) == 0:
+        print(f"\n[{name}] empty")
+        return
+
+    print(f"\n[{name}] mean      = {np.mean(series):.3f}")
+    print(f"[{name}] min       = {np.min(series):.3f}")
+    print(f"[{name}] max       = {np.max(series):.3f}")
+    print(f"[{name}] <0.5 cnt  = {np.sum(series < 0.5)}")
+    print(f"[{name}] <0.3 cnt  = {np.sum(series < 0.3)}")
+
+
+def configure_degradation_case():
+    if DEGRADATION_CASE == "uwb_only":
+        return "mixed_nlos", [], []
+
+    elif DEGRADATION_CASE == "lio_only":
+        return "los", LIO_DEGRADE_WINDOWS, []
+
+    elif DEGRADATION_CASE == "rtab_only":
+        return "los", [], RTAB_DEGRADE_WINDOWS
+
+    elif DEGRADATION_CASE == "dual_lio_uwb":
+        return "mixed_nlos", LIO_DEGRADE_WINDOWS, []
+
+    elif DEGRADATION_CASE == "dual_rtab_uwb":
+        return "mixed_nlos", [], RTAB_DEGRADE_WINDOWS
+
+    elif DEGRADATION_CASE == "mixed_all":
+        return "mixed_nlos", LIO_DEGRADE_WINDOWS, RTAB_DEGRADE_WINDOWS
+
+    else:
+        raise ValueError(f"Unknown DEGRADATION_CASE: {DEGRADATION_CASE}")
+
+
+def smooth_series(series, win=5):
+    series = np.asarray(series, dtype=float)
+    if win <= 1 or len(series) == 0:
+        return series.copy()
+
+    kernel = np.ones(win, dtype=float) / float(win)
+    pad = win // 2
+    padded = np.pad(series, (pad, pad), mode="edge")
+    smoothed = np.convolve(padded, kernel, mode="valid")
+    return smoothed[:len(series)]
+
+def local_robust_abs_deviation_series(values, half_window=4, eps=1e-6):
+    """
+    对一维序列做局部 robust 偏离度计算：
+    score[k] = |x_k - local_median| / local_MAD
+    """
+    values = np.asarray(values, dtype=float)
+    n = len(values)
+    score = np.zeros(n, dtype=float)
+
+    for k in range(n):
+        a = max(0, k - half_window)
+        b = min(n, k + half_window + 1)
+        win = values[a:b]
+
+        if len(win) < 3:
+            score[k] = 0.0
+            continue
+
+        med = np.median(win)
+        mad = np.median(np.abs(win - med))
+        mad = max(mad, eps)
+
+        score[k] = abs(values[k] - med) / mad
+
+    return score
+
+
+def robust_median_mad(values, eps=1e-6):
+    values = np.asarray(values, dtype=float)
+    med = np.median(values)
+    mad = np.median(np.abs(values - med))
+    mad = max(mad, eps)
+    return med, mad
+
+
+def compute_odom_self_consistency_series(odom,
+                                         half_window=4,
+                                         diff_weight=0.75,
+                                         eps=1e-6):
+    """
+    3.1.1 新版：
+    不再使用“融合轨迹 vs odom”的残差来诊断 odom，
+    而是只用 odom 自身的局部一致性来构造 error series。
+
+    思路：
+    1) 看每帧平移增量模长 trans_norm[k]
+    2) 看每帧角增量绝对值 yaw_abs[k]
+    3) 再看它们的一阶差分 dtrans / dyaw
+    4) 用局部 median + MAD 计算偏离度
+    5) 把这些偏离度合成为 odom 的 diagnostic error
+    """
+    odom = np.asarray(odom, dtype=float)
+    n = len(odom)
+
+    if n == 0:
+        return np.zeros(0, dtype=float)
+
+    # 平移增量模长
+    trans_norm = np.linalg.norm(odom[:, :2], axis=1)
+
+    # 角增量绝对值
+    yaw_abs = np.abs(np.array([wrap_angle(v) for v in odom[:, 2]]))
+
+    # 一阶差分：反映“局部抖动/突然变坏”
+    dtrans = np.zeros(n, dtype=float)
+    if n > 1:
+        dtrans[1:] = np.abs(np.diff(trans_norm))
+
+    dyaw = np.zeros(n, dtype=float)
+    if n > 1:
+        dy = np.array([wrap_angle(odom[k, 2] - odom[k - 1, 2]) for k in range(1, n)])
+        dyaw[1:] = np.abs(dy)
+
+    z_trans = local_robust_abs_deviation_series(
+        trans_norm, half_window=half_window, eps=eps
+    )
+    z_yaw = local_robust_abs_deviation_series(
+        yaw_abs, half_window=half_window, eps=eps
+    )
+    z_dtrans = local_robust_abs_deviation_series(
+        dtrans, half_window=half_window, eps=eps
+    )
+    z_dyaw = local_robust_abs_deviation_series(
+        dyaw, half_window=half_window, eps=eps
+    )
+
+    # 主项：trans/yaw 当前值偏离
+    # 辅项：一阶差分异常（用于捕捉抖动/噪声爆发）
+    err = np.sqrt(
+        z_trans**2 +
+        z_yaw**2 +
+        diff_weight * (z_dtrans**2 + z_dyaw**2)
+    )
+
+    # 轻度平滑，减少单点误触发
+    err = smooth_series(err, win=3)
+    return err
+
+
+def compute_uwb_factor_error_series(traj, uwb_meas, anchors, sigma_uwb=0.15):
+    """
+    3.1.2 新版：
+    计算每一帧 UWB 因子的白化残差聚合量，
+    采用“均值 + 最大值”的更敏感聚合，而不是单纯 mean abs residual。
+
+    返回:
+        step_err: shape = [num_steps]
+        step_cnt: shape = [num_steps]
+    """
+    w_uwb = 1.0 / sigma_uwb
+    num_steps = len(traj)
+
+    grouped = [[] for _ in range(num_steps)]
+    cnt = np.zeros(num_steps, dtype=int)
+
+    for meas in uwb_meas:
+        k, m, r_meas = meas[:3]
+        px, py, _ = traj[k]
+        r_pred = np.linalg.norm(np.array([px, py]) - anchors[m])
+
+        e = abs(w_uwb * (r_pred - r_meas))
+        grouped[k].append(e)
+        cnt[k] += 1
+
+    step_err = np.full(num_steps, np.nan, dtype=float)
+
+    for k in range(num_steps):
+        if cnt[k] == 0:
+            continue
+
+        vals = np.asarray(grouped[k], dtype=float)
+
+        if len(vals) == 1:
+            step_err[k] = vals[0]
+        else:
+            mean_e = np.mean(vals)
+            max_e = np.max(vals)
+
+            # 更敏感：既看整体平均，也看最坏一条
+            step_err[k] = 0.5 * mean_e + 0.5 * max_e
+
+    return step_err, cnt
+
+
+
+def compute_excess_z_series(errors, mad_scale=3.0):
+    """
+    统一的 robust excess z 计算：
+    z = max((error - median) / (mad_scale * MAD), 0)
+    """
+    errors = np.asarray(errors, dtype=float)
+    valid = np.isfinite(errors)
+
+    z = np.zeros(len(errors), dtype=float)
+    if np.sum(valid) == 0:
+        return z, valid
+
+    med, mad = robust_median_mad(errors[valid])
+
+    z[valid] = np.maximum((errors[valid] - med) / (mad_scale * mad), 0.0)
+    z[~valid] = np.nan
+    return z, valid
+
+
+def map_odom_error_series_to_reliability(errors,
+                                         floor=0.10,
+                                         mad_scale=6.0,
+                                         smooth_win=5,
+                                         deadzone_z=0.80,
+                                         drop_power=2.0):
+    """
+    3.1.2 新版：
+    odom 使用 dead-zone 映射。
+    健康波动区间内保持 s≈1，超过 dead-zone 后再平滑下降。
+    """
+    z, valid = compute_excess_z_series(errors, mad_scale=mad_scale)
+
+    s = np.ones(len(errors), dtype=float)
+    if np.sum(valid) > 0:
+        z_eff = np.maximum(z[valid] - deadzone_z, 0.0)
+        s[valid] = 1.0 / (1.0 + z_eff**drop_power)
+
+    s[~valid] = floor
+    s = smooth_series(s, win=smooth_win)
+    s = np.clip(s, floor, 1.0)
+    return s
+
+
+def map_uwb_error_series_to_reliability(errors,
+                                        floor=0.10,
+                                        mad_scale=2.8,
+                                        smooth_win=5,
+                                        deadzone_z=0.15,
+                                        drop_sharpness=1.60):
+    """
+    3.1.2 新版：
+    UWB 使用更敏感的映射。
+    dead-zone 很小，只要残差超过正常范围就较快下降。
+    """
+    z, valid = compute_excess_z_series(errors, mad_scale=mad_scale)
+
+    s = np.ones(len(errors), dtype=float)
+    if np.sum(valid) > 0:
+        z_eff = np.maximum(z[valid] - deadzone_z, 0.0)
+        s[valid] = np.exp(-drop_sharpness * z_eff)
+
+    s[~valid] = floor
+    s = smooth_series(s, win=smooth_win)
+    s = np.clip(s, floor, 1.0)
+    return s
+
+
+
+def build_diagnostic_reliability_series(
+    traj1, traj2,
+    odom1, odom2,
+    uwb1, uwb2,
+    anchors,
+    sigma_odom_xy=0.05,
+    sigma_odom_yaw=0.03,
+    sigma_uwb=0.15,
+    reliability_floor=0.10,
+    mad_scale_odom=6.0,
+    mad_scale_uwb=2.8,
+    smooth_win=5,
+    uwb_geom_blend=0.20,
+    odom_diag_half_window=5,
+    odom_diff_weight=0.50,
+    odom_deadzone_z=0.80,
+    odom_drop_power=2.0,
+    uwb_deadzone_z=0.15,
+    uwb_drop_sharpness=1.60
+):
+    """
+    3.1.2 的核心函数：
+    - odom reliability: odom 自身局部一致性 + dead-zone 映射
+    - UWB reliability : stage-0 轨迹上的 UWB 更敏感残差聚合 + 几何覆盖度
+    """
+    # =========================================================
+    # 1) odom 模态：自身一致性 + dead-zone 映射
+    # =========================================================
+    err_lio = compute_odom_self_consistency_series(
+        odom1,
+        half_window=odom_diag_half_window,
+        diff_weight=odom_diff_weight
+    )
+    err_rtab = compute_odom_self_consistency_series(
+        odom2,
+        half_window=odom_diag_half_window,
+        diff_weight=odom_diff_weight
+    )
+
+    s_lio = map_odom_error_series_to_reliability(
+        err_lio,
+        floor=reliability_floor,
+        mad_scale=mad_scale_odom,
+        smooth_win=smooth_win,
+        deadzone_z=odom_deadzone_z,
+        drop_power=odom_drop_power
+    )
+    s_rtab = map_odom_error_series_to_reliability(
+        err_rtab,
+        floor=reliability_floor,
+        mad_scale=mad_scale_odom,
+        smooth_win=smooth_win,
+        deadzone_z=odom_deadzone_z,
+        drop_power=odom_drop_power
+    )
+
+    # =========================================================
+    # 2) UWB 模态：更敏感的残差聚合 + 更敏感映射 + 更强几何惩罚
+    # =========================================================
+    err_uwb1, cnt_uwb1 = compute_uwb_factor_error_series(
+        traj1, uwb1, anchors, sigma_uwb=sigma_uwb
+    )
+    err_uwb2, cnt_uwb2 = compute_uwb_factor_error_series(
+        traj2, uwb2, anchors, sigma_uwb=sigma_uwb
+    )
+
+    s_uwb1 = map_uwb_error_series_to_reliability(
+        err_uwb1,
+        floor=reliability_floor,
+        mad_scale=mad_scale_uwb,
+        smooth_win=smooth_win,
+        deadzone_z=uwb_deadzone_z,
+        drop_sharpness=uwb_drop_sharpness
+    )
+    s_uwb2 = map_uwb_error_series_to_reliability(
+        err_uwb2,
+        floor=reliability_floor,
+        mad_scale=mad_scale_uwb,
+        smooth_win=smooth_win,
+        deadzone_z=uwb_deadzone_z,
+        drop_sharpness=uwb_drop_sharpness
+    )
+
+    num_anchors = len(anchors)
+    geom1 = np.clip(cnt_uwb1 / max(num_anchors, 1), 0.0, 1.0)
+    geom2 = np.clip(cnt_uwb2 / max(num_anchors, 1), 0.0, 1.0)
+
+    # 3.1.2：几何惩罚更强，用 geom^2，而不是线性 geom
+    geom_term1 = uwb_geom_blend + (1.0 - uwb_geom_blend) * (geom1 ** 2)
+    geom_term2 = uwb_geom_blend + (1.0 - uwb_geom_blend) * (geom2 ** 2)
+
+    s_uwb1 = s_uwb1 * geom_term1
+    s_uwb2 = s_uwb2 * geom_term2
+
+    s_uwb1[cnt_uwb1 == 0] = reliability_floor
+    s_uwb2[cnt_uwb2 == 0] = reliability_floor
+
+    s_uwb1 = np.clip(s_uwb1, reliability_floor, 1.0)
+    s_uwb2 = np.clip(s_uwb2, reliability_floor, 1.0)
+
+    return s_lio, s_rtab, s_uwb1, s_uwb2, err_lio, err_rtab, err_uwb1, err_uwb2
+
+# =========================
+# 从 odom 积分出初始轨迹
+# =========================
+def integrate_odom(odom, init_pose):
+    traj = [init_pose.copy()]
+    cur = init_pose.copy()
+
+    for z in odom:
+        cur = pose_compose(cur, z)
+        traj.append(cur.copy())
+
+    return np.array(traj)
+
+
+# =========================
+# 打包/解包状态
+# =========================
+def pack_states(traj1, traj2):
+    return np.hstack([traj1.reshape(-1), traj2.reshape(-1)])
+
+
+def unpack_states(x, N1, N2):
+    idx = 0
+
+    traj1 = x[idx:idx + 3 * N1].reshape(N1, 3)
+    idx += 3 * N1
+
+    traj2 = x[idx:idx + 3 * N2].reshape(N2, 3)
+
+    return traj1, traj2
+
+# =========================
+# 构造残差函数
+# =========================
+def build_residual_function(
+    N1, N2,
+    odom1, odom2,
+    uwb1, uwb2,
+    anchors,
+    prior1,
+    prior2=None,
+    use_robot2_prior=False,
+    use_uwb=True,
+    sigma_prior_xy=0.02,
+    sigma_prior_yaw=0.02,
+    sigma_prior2_xy=5.0,
+    sigma_prior2_yaw=1.5,
+    sigma_odom_xy=0.05,
+    sigma_odom_yaw=0.03,
+    sigma_uwb=0.15,
+    s_lio=None,
+    s_rtab=None,
+    s_uwb1=None,
+    s_uwb2=None,
+    use_reliability_weighting=True,
+    reliability_floor=0.10
+):
+    """
+    返回 least_squares 使用的残差函数
+    """
+    w_prior_xy = 1.0 / sigma_prior_xy
+    w_prior_yaw = 1.0 / sigma_prior_yaw
+    w_prior2_xy = 1.0 / sigma_prior2_xy
+    w_prior2_yaw = 1.0 / sigma_prior2_yaw
+    w_odom_xy = 1.0 / sigma_odom_xy
+    w_odom_yaw = 1.0 / sigma_odom_yaw
+    w_uwb = 1.0 / sigma_uwb
+
+    if s_lio is None:
+        s_lio = np.ones(N1 - 1)
+    if s_rtab is None:
+        s_rtab = np.ones(N2 - 1)
+    if s_uwb1 is None:
+        s_uwb1 = np.ones(N1)
+    if s_uwb2 is None:
+        s_uwb2 = np.ones(N2)
+
+    def residual(x):
+        traj1, traj2 = unpack_states(x, N1, N2)
+        res = []
+
+        # ---- Robot1 第一帧强先验：提供全局 gauge ----
+        e1 = traj1[0] - prior1
+        e1[2] = wrap_angle(e1[2])
+        res.extend([w_prior_xy * e1[0], w_prior_xy * e1[1], w_prior_yaw * e1[2]])
+
+        # ---- Robot2 可选弱先验 ----
+        if use_robot2_prior and (prior2 is not None):
+            e2 = traj2[0] - prior2
+            e2[2] = wrap_angle(e2[2])
+            res.extend([w_prior2_xy * e2[0], w_prior2_xy * e2[1], w_prior2_yaw * e2[2]])
+
+        # ---- Robot1 odom 因子：乘 sqrt(s_lio[k]) ----
+        for k in range(N1 - 1):
+            pred = relative_pose(traj1[k], traj1[k + 1])
+            err = pred - odom1[k]
+            err[2] = wrap_angle(err[2])
+
+            alpha = 1.0
+            if use_reliability_weighting:
+                alpha = np.sqrt(np.clip(s_lio[k], reliability_floor, 1.0))
+
+            res.extend([
+                alpha * w_odom_xy * err[0],
+                alpha * w_odom_xy * err[1],
+                alpha * w_odom_yaw * err[2]
+            ])
+
+        # ---- Robot2 odom 因子：乘 sqrt(s_rtab[k]) ----
+        for k in range(N2 - 1):
+            pred = relative_pose(traj2[k], traj2[k + 1])
+            err = pred - odom2[k]
+            err[2] = wrap_angle(err[2])
+
+            alpha = 1.0
+            if use_reliability_weighting:
+                alpha = np.sqrt(np.clip(s_rtab[k], reliability_floor, 1.0))
+
+            res.extend([
+                alpha * w_odom_xy * err[0],
+                alpha * w_odom_xy * err[1],
+                alpha * w_odom_yaw * err[2]
+            ])
+
+        if use_uwb:
+            # ---- Robot1 UWB：同一时刻共享 s_uwb1[k] ----
+            for meas in uwb1:
+                k, m, r_meas = meas[:3]
+                px, py, _ = traj1[k]
+                r_pred = np.linalg.norm(np.array([px, py]) - anchors[m])
+
+                e_uwb = w_uwb * (r_pred - r_meas)
+
+                alpha = 1.0
+                if use_reliability_weighting:
+                    alpha = np.sqrt(np.clip(s_uwb1[k], reliability_floor, 1.0))
+
+                res.append(alpha * e_uwb)
+
+            # ---- Robot2 UWB：同一时刻共享 s_uwb2[k] ----
+            for meas in uwb2:
+                k, m, r_meas = meas[:3]
+                px, py, _ = traj2[k]
+                r_pred = np.linalg.norm(np.array([px, py]) - anchors[m])
+
+                e_uwb = w_uwb * (r_pred - r_meas)
+
+                alpha = 1.0
+                if use_reliability_weighting:
+                    alpha = np.sqrt(np.clip(s_uwb2[k], reliability_floor, 1.0))
+
+                res.append(alpha * e_uwb)
+
+        return np.array(res)
+
+    return residual
+
+
+# =========================
+# 主程序
+# =========================
+def main():
+    np.random.seed(SEED_MAIN)
+    os.makedirs("figs", exist_ok=True)
+
+    # =========================
+    # 根据 BASELINE_MODE 自动配置
+    # =========================
+    if BASELINE_MODE == "odom_only":
+        use_uwb = False
+        use_robot2_prior = False
+        prior2_for_opt = None
+        sigma_prior2_xy = SIGMA_WEAK_PRIOR2_XY
+        sigma_prior2_yaw = SIGMA_WEAK_PRIOR2_YAW
+        anchor_visibility_mode = "all"
+
+    elif BASELINE_MODE == "dual_prior_all_anchors":
+        use_uwb = True
+        use_robot2_prior = True
+        prior2_for_opt = None   # 后面 gt2 生成后再替换为 gt2[0]
+        sigma_prior2_xy = SIGMA_PRIOR_XY
+        sigma_prior2_yaw = SIGMA_PRIOR_YAW
+        anchor_visibility_mode = "all"
+
+    elif BASELINE_MODE == "single_prior_all_anchors":
+        use_uwb = True
+        use_robot2_prior = USE_ROBOT2_WEAK_PRIOR
+        prior2_for_opt = ROBOT2_INIT_GUESS if USE_ROBOT2_WEAK_PRIOR else None
+        sigma_prior2_xy = SIGMA_WEAK_PRIOR2_XY
+        sigma_prior2_yaw = SIGMA_WEAK_PRIOR2_YAW
+        anchor_visibility_mode = "all"
+
+    elif BASELINE_MODE == "single_prior_partial_anchors":
+        use_uwb = True
+        use_robot2_prior = USE_ROBOT2_WEAK_PRIOR
+        prior2_for_opt = ROBOT2_INIT_GUESS if USE_ROBOT2_WEAK_PRIOR else None
+        sigma_prior2_xy = SIGMA_WEAK_PRIOR2_XY
+        sigma_prior2_yaw = SIGMA_WEAK_PRIOR2_YAW
+        anchor_visibility_mode = "partial_random"
+
+    else:
+        raise ValueError(f"Unknown BASELINE_MODE: {BASELINE_MODE}")
+
+    effective_uwb_error_mode, lio_windows, rtab_windows = configure_degradation_case()
+    
+    # 如果手动强制设置了 USE_UWB，就覆盖模式默认值
+    if FORCE_USE_UWB is not None:
+        use_uwb = FORCE_USE_UWB
+
+    print("========== Simulation Config ==========")
+    print(f"ODOM1_SIGMA_XY                 = {ODOM1_SIGMA_XY}")
+    print(f"ODOM1_SIGMA_YAW                = {ODOM1_SIGMA_YAW}")
+    print(f"ODOM1_BIAS_XY                  = {ODOM1_BIAS_XY}")
+    print(f"ODOM1_BIAS_YAW                 = {ODOM1_BIAS_YAW}")
+    print(f"ODOM2_SIGMA_XY                 = {ODOM2_SIGMA_XY}")
+    print(f"ODOM2_SIGMA_YAW                = {ODOM2_SIGMA_YAW}")
+    print(f"ODOM2_BIAS_XY                  = {ODOM2_BIAS_XY}")
+    print(f"ODOM2_BIAS_YAW                 = {ODOM2_BIAS_YAW}")
+    print(f"UWB_SIGMA_R(sim)               = {UWB_SIGMA_R}")
+    print(f"SIGMA_UWB(opt)                 = {SIGMA_UWB}")
+    print(f"ROBOT2_INIT_GUESS              = {ROBOT2_INIT_GUESS}")
+    print(f"USE_ROBOT2_WEAK_PRIOR          = {USE_ROBOT2_WEAK_PRIOR}")
+    print(f"BASELINE_MODE                  = {BASELINE_MODE}")
+    print(f"EFFECTIVE_ANCHOR_VISIBILITY    = {anchor_visibility_mode}")
+    print(f"EFFECTIVE_USE_UWB              = {use_uwb}")
+    print(f"EFFECTIVE_USE_ROBOT2_PRIOR     = {use_robot2_prior}")
+    print(f"MIN_VISIBLE_ANCHORS            = {MIN_VISIBLE_ANCHORS}")
+    print(f"MAX_VISIBLE_ANCHORS            = {MAX_VISIBLE_ANCHORS}")
+    print(f"DEGRADATION_CASE               = {DEGRADATION_CASE}")
+    print(f"EFFECTIVE_UWB_ERROR_MODE       = {effective_uwb_error_mode}")
+    print(f"LIO_DEGRADE_WINDOWS            = {lio_windows}")
+    print(f"RTAB_DEGRADE_WINDOWS           = {rtab_windows}")
+    print(f"NLOS_PROB                      = {NLOS_PROB}")
+    print(f"NLOS_BIAS_MEAN                 = {NLOS_BIAS_MEAN}")
+    print(f"NLOS_BIAS_STD                  = {NLOS_BIAS_STD}")
+    print(f"NLOS_BIAS_MIN                  = {NLOS_BIAS_MIN}")
+    print(f"NLOS_BIAS_MAX                  = {NLOS_BIAS_MAX}")
+    print(f"USE_RELIABILITY_WEIGHTING      = {USE_RELIABILITY_WEIGHTING}")
+    print(f"RELIABILITY_FLOOR             = {RELIABILITY_FLOOR}")
+    print(f"STAGE0_MAX_NFEV               = {STAGE0_MAX_NFEV}")
+    print(f"STAGE1_MAX_NFEV               = {STAGE1_MAX_NFEV}")
+    print(f"DIAG_MAD_SCALE_ODOM           = {DIAG_MAD_SCALE_ODOM}")
+    print(f"DIAG_MAD_SCALE_UWB            = {DIAG_MAD_SCALE_UWB}")
+    print(f"DIAG_SMOOTH_WIN               = {DIAG_SMOOTH_WIN}")
+    print(f"UWB_GEOM_BLEND                = {UWB_GEOM_BLEND}")
+    print(f"ODOM_DIAG_HALF_WINDOW         = {ODOM_DIAG_HALF_WINDOW}")
+    print(f"ODOM_DIFF_WEIGHT              = {ODOM_DIFF_WEIGHT}")
+    print(f"ODOM_DEADZONE_Z               = {ODOM_DEADZONE_Z}")
+    print(f"ODOM_DROP_POWER               = {ODOM_DROP_POWER}")
+    print(f"UWB_DEADZONE_Z                = {UWB_DEADZONE_Z}")
+    print(f"UWB_DROP_SHARPNESS            = {UWB_DROP_SHARPNESS}")
+    print("=======================================")
+
+    # 1) anchor 坐标（世界系）
+    anchors = ANCHORS
+
+    # 2) 轨迹长度
+    N1 = NUM_STEPS_1
+    N2 = NUM_STEPS_2
+
+    # 3) 生成两车真值轨迹
+    gt1 = generate_truth_traj(
+        center_x=GT1_CENTER_X,
+        center_y=GT1_CENTER_Y,
+        radius_x=GT1_RADIUS_X,
+        radius_y=GT1_RADIUS_Y,
+        phase=GT1_PHASE,
+        N=N1
+    )
+
+    gt2 = generate_truth_traj(
+        center_x=GT2_CENTER_X,
+        center_y=GT2_CENTER_Y,
+        radius_x=GT2_RADIUS_X,
+        radius_y=GT2_RADIUS_Y,
+        phase=GT2_PHASE,
+        N=N2
+    )
+
+    lio_sigma_scale = fill_windows_scale(N1 - 1, lio_windows, 1.0, LIO_SIGMA_SCALE_DEG)
+    lio_bias_scale = fill_windows_scale(N1 - 1, lio_windows, 1.0, LIO_BIAS_SCALE_DEG)
+
+    rtab_sigma_scale = fill_windows_scale(N2 - 1, rtab_windows, 1.0, RTAB_SIGMA_SCALE_DEG)
+    rtab_bias_scale = fill_windows_scale(N2 - 1, rtab_windows, 1.0, RTAB_BIAS_SCALE_DEG)
+
+
+    # 4) 模拟 odom 测量（故意给车2更大漂移）
+    odom1 = simulate_odom(
+        gt1,
+        sigma_xy=ODOM1_SIGMA_XY,
+        sigma_yaw=ODOM1_SIGMA_YAW,
+        bias_xy=ODOM1_BIAS_XY,
+        bias_yaw=ODOM1_BIAS_YAW,
+        sigma_scale_series=lio_sigma_scale,
+        bias_scale_series=lio_bias_scale
+    )
+
+    odom2 = simulate_odom(
+        gt2,
+        sigma_xy=ODOM2_SIGMA_XY,
+        sigma_yaw=ODOM2_SIGMA_YAW,
+        bias_xy=ODOM2_BIAS_XY,
+        bias_yaw=ODOM2_BIAS_YAW,
+        sigma_scale_series=rtab_sigma_scale,
+        bias_scale_series=rtab_bias_scale
+    )
+
+    # 5) 模拟 UWB 测距
+    if use_uwb:
+        vis_sched1 = generate_visibility_schedule(
+            num_steps=len(gt1),
+            num_anchors=len(anchors),
+            visibility_mode=anchor_visibility_mode,
+            min_visible=MIN_VISIBLE_ANCHORS,
+            max_visible=MAX_VISIBLE_ANCHORS,
+            rng_vis=np.random.default_rng(SEED_VIS_R1)
+        )
+
+        vis_sched2 = generate_visibility_schedule(
+            num_steps=len(gt2),
+            num_anchors=len(anchors),
+            visibility_mode=anchor_visibility_mode,
+            min_visible=MIN_VISIBLE_ANCHORS,
+            max_visible=MAX_VISIBLE_ANCHORS,
+            rng_vis=np.random.default_rng(SEED_VIS_R2)
+        )
+
+        uwb1 = simulate_uwb(
+            gt1,
+            anchors,
+            sigma_r=UWB_SIGMA_R,
+            error_mode=effective_uwb_error_mode,
+            nlos_prob=NLOS_PROB,
+            nlos_bias_mean=NLOS_BIAS_MEAN,
+            nlos_bias_std=NLOS_BIAS_STD,
+            nlos_bias_min=NLOS_BIAS_MIN,
+            nlos_bias_max=NLOS_BIAS_MAX,
+            visible_ids_per_step=vis_sched1,
+            rng_los=np.random.default_rng(SEED_UWB_LOS_R1),
+            rng_nlos=np.random.default_rng(SEED_UWB_NLOS_R1)
+        )
+
+        uwb2 = simulate_uwb(
+            gt2,
+            anchors,
+            sigma_r=UWB_SIGMA_R,
+            error_mode=effective_uwb_error_mode,
+            nlos_prob=NLOS_PROB,
+            nlos_bias_mean=NLOS_BIAS_MEAN,
+            nlos_bias_std=NLOS_BIAS_STD,
+            nlos_bias_min=NLOS_BIAS_MIN,
+            nlos_bias_max=NLOS_BIAS_MAX,
+            visible_ids_per_step=vis_sched2,
+            rng_los=np.random.default_rng(SEED_UWB_LOS_R2),
+            rng_nlos=np.random.default_rng(SEED_UWB_NLOS_R2)
+        )
+
+        summarize_uwb_measurements(uwb1, name="Robot1 UWB")
+        summarize_uwb_measurements(uwb2, name="Robot2 UWB")
+
+    else:
+        uwb1, uwb2 = [], []
+        print("\n[UWB] disabled in current baseline.")
+
+
+
+    # 6) 由 odom 积分得到初始轨迹
+    init1 = integrate_odom(odom1, gt1[0].copy())
+    # 由 baseline 模式决定 Robot2 的初始轨迹起点
+    if BASELINE_MODE == "dual_prior_all_anchors":
+        init2 = integrate_odom(odom2, gt2[0].copy())
+    else:
+        init2 = integrate_odom(odom2, ROBOT2_INIT_GUESS.copy())
+
+
+    # =========================================================
+    # 3.1 Stage-0:
+    # 先做一遍不使用 diagnostic reliability weighting 的基础优化
+    # 目的：得到用于构造诊断量的初步轨迹
+    # =========================================================
+    x0_stage0 = pack_states(init1, init2)
+
+    if BASELINE_MODE == "dual_prior_all_anchors":
+        prior2_for_stage0 = gt2[0]
+    else:
+        prior2_for_stage0 = prior2_for_opt
+
+    residual_fn_stage0 = build_residual_function(
+        N1=N1,
+        N2=N2,
+        odom1=odom1,
+        odom2=odom2,
+        uwb1=uwb1,
+        uwb2=uwb2,
+        anchors=anchors,
+        prior1=gt1[0],
+        prior2=prior2_for_stage0,
+        use_robot2_prior=use_robot2_prior,
+        use_uwb=use_uwb,
+        sigma_prior_xy=SIGMA_PRIOR_XY,
+        sigma_prior_yaw=SIGMA_PRIOR_YAW,
+        sigma_prior2_xy=sigma_prior2_xy,
+        sigma_prior2_yaw=sigma_prior2_yaw,
+        sigma_odom_xy=SIGMA_ODOM_XY,
+        sigma_odom_yaw=SIGMA_ODOM_YAW,
+        sigma_uwb=SIGMA_UWB,
+        s_lio=np.ones(N1 - 1),
+        s_rtab=np.ones(N2 - 1),
+        s_uwb1=np.ones(N1),
+        s_uwb2=np.ones(N2),
+        use_reliability_weighting=False,
+        reliability_floor=RELIABILITY_FLOOR
+    )
+
+    result_stage0 = least_squares(
+        residual_fn_stage0,
+        x0_stage0,
+        verbose=0,
+        max_nfev=STAGE0_MAX_NFEV,
+        loss="linear"
+    )
+
+    stage0_est1, stage0_est2 = unpack_states(result_stage0.x, N1, N2)
+
+    # =========================================================
+    # 3.1 Stage-1 前处理:
+    # 由 stage-0 轨迹 + 观测构造 diagnostic reliability 序列
+    # =========================================================
+    if use_uwb:
+        s_lio, s_rtab, s_uwb1, s_uwb2, err_lio, err_rtab, err_uwb1, err_uwb2 = \
+            build_diagnostic_reliability_series(
+                traj1=stage0_est1,
+                traj2=stage0_est2,
+                odom1=odom1,
+                odom2=odom2,
+                uwb1=uwb1,
+                uwb2=uwb2,
+                anchors=anchors,
+                sigma_odom_xy=SIGMA_ODOM_XY,
+                sigma_odom_yaw=SIGMA_ODOM_YAW,
+                sigma_uwb=SIGMA_UWB,
+                reliability_floor=RELIABILITY_FLOOR,
+                mad_scale_odom=DIAG_MAD_SCALE_ODOM,
+                mad_scale_uwb=DIAG_MAD_SCALE_UWB,
+                smooth_win=DIAG_SMOOTH_WIN,
+                uwb_geom_blend=UWB_GEOM_BLEND,
+                odom_diag_half_window=ODOM_DIAG_HALF_WINDOW,
+                odom_diff_weight=ODOM_DIFF_WEIGHT,
+                odom_deadzone_z=ODOM_DEADZONE_Z,
+                odom_drop_power=ODOM_DROP_POWER,
+                uwb_deadzone_z=UWB_DEADZONE_Z,
+                uwb_drop_sharpness=UWB_DROP_SHARPNESS
+            )
+    else:
+        # odom_only 不推荐用于 3.1 diagnostic，
+        # 因为没有外部约束时，odom residual 很难提供有意义的模态诊断
+        s_lio = np.ones(N1 - 1)
+        s_rtab = np.ones(N2 - 1)
+        s_uwb1 = np.ones(N1)
+        s_uwb2 = np.ones(N2)
+        err_lio = np.zeros(N1 - 1)
+        err_rtab = np.zeros(N2 - 1)
+        err_uwb1 = np.zeros(N1)
+        err_uwb2 = np.zeros(N2)
+
+    summarize_reliability_series(s_lio, name="s_lio")
+    summarize_reliability_series(s_rtab, name="s_rtab")
+    summarize_reliability_series(s_uwb1, name="s_uwb1")
+    summarize_reliability_series(s_uwb2, name="s_uwb2")
+
+
+    if PRINT_STAGE0_RMSE:
+        stage0_rmse1 = np.sqrt(np.mean(np.sum((stage0_est1[:, :2] - gt1[:, :2]) ** 2, axis=1)))
+        stage0_rmse2 = np.sqrt(np.mean(np.sum((stage0_est2[:, :2] - gt2[:, :2]) ** 2, axis=1)))
+
+        print("\n========== Stage-0 RMSE ==========")
+        print(f"Robot1 stage-0 position RMSE: {stage0_rmse1:.4f} m")
+        print(f"Robot2 stage-0 position RMSE: {stage0_rmse2:.4f} m")
+    
+    # 7) 3.1 的最终优化初值：使用 stage-0 的结果，而不是原始 odom 积分轨迹
+    x0 = pack_states(stage0_est1, stage0_est2)
+
+
+
+    # 8) 构造残差函数
+    # dual prior 模式下，Robot2 的强先验要用 gt2[0]
+    if BASELINE_MODE == "dual_prior_all_anchors":
+        prior2_for_opt = gt2[0]
+
+    residual_fn = build_residual_function(
+        N1=N1,
+        N2=N2,
+        odom1=odom1,
+        odom2=odom2,
+        uwb1=uwb1,
+        uwb2=uwb2,
+        anchors=anchors,
+        prior1=gt1[0],
+        prior2=prior2_for_opt,
+        use_robot2_prior=use_robot2_prior,
+        use_uwb=use_uwb,
+        sigma_prior_xy=SIGMA_PRIOR_XY,
+        sigma_prior_yaw=SIGMA_PRIOR_YAW,
+        sigma_prior2_xy=sigma_prior2_xy,
+        sigma_prior2_yaw=sigma_prior2_yaw,
+        sigma_odom_xy=SIGMA_ODOM_XY,
+        sigma_odom_yaw=SIGMA_ODOM_YAW,
+        sigma_uwb=SIGMA_UWB,
+        s_lio=s_lio,
+        s_rtab=s_rtab,
+        s_uwb1=s_uwb1,
+        s_uwb2=s_uwb2,
+        use_reliability_weighting=USE_RELIABILITY_WEIGHTING,
+        reliability_floor=RELIABILITY_FLOOR
+    )
+
+    # 9) 优化
+    result = least_squares(
+        residual_fn,
+        x0,
+        verbose=2,
+        max_nfev=STAGE1_MAX_NFEV,
+        loss="linear"
+    )
+
+    est1, est2 = unpack_states(result.x, N1, N2)
+
+    # 10) 计算初始与优化后的 RMSE
+    init_rmse1 = np.sqrt(np.mean(np.sum((init1[:, :2] - gt1[:, :2]) ** 2, axis=1)))
+    init_rmse2 = np.sqrt(np.mean(np.sum((init2[:, :2] - gt2[:, :2]) ** 2, axis=1)))
+
+    est_rmse1 = np.sqrt(np.mean(np.sum((est1[:, :2] - gt1[:, :2]) ** 2, axis=1)))
+    est_rmse2 = np.sqrt(np.mean(np.sum((est2[:, :2] - gt2[:, :2]) ** 2, axis=1)))
+
+    print("\n========== RMSE ==========")
+    print(f"Robot1 init position RMSE: {init_rmse1:.4f} m")
+    print(f"Robot1 est  position RMSE: {est_rmse1:.4f} m")
+    print(f"Robot2 init position RMSE: {init_rmse2:.4f} m")
+    print(f"Robot2 est  position RMSE: {est_rmse2:.4f} m")
+
+    # 11) 画图
+    plt.figure(figsize=(9, 7))
+
+    # anchors
+    plt.scatter(anchors[:, 0], anchors[:, 1], marker='s', s=120, label='Anchors')
+
+    # ground truth
+    plt.plot(gt1[:, 0], gt1[:, 1], 'g-', linewidth=2, label='GT Robot1')
+    plt.plot(gt2[:, 0], gt2[:, 1], 'b-', linewidth=2, label='GT Robot2')
+
+    # initial from odom
+    plt.plot(init1[:, 0], init1[:, 1], 'g--', alpha=0.7, label='Init Robot1')
+    plt.plot(init2[:, 0], init2[:, 1], 'b--', alpha=0.7, label='Init Robot2')
+
+    # optimized
+    plt.plot(est1[:, 0], est1[:, 1], 'r-', linewidth=2.2, label='Optimized Robot1')
+    plt.plot(est2[:, 0], est2[:, 1], 'm-', linewidth=2.2, label='Optimized Robot2')
+
+    plt.axis('equal')
+    plt.grid(True)
+    plt.xlabel('x [m]')
+    plt.ylabel('y [m]')
+    plt.title(
+        f'2D Two-Robot + Anchor-UWB Numerical Simulation '
+        f'(3.1.2, {BASELINE_MODE}, {DEGRADATION_CASE}, deadzone_sensitive_uwb)'
+    )
+    plt.legend()
+    plt.tight_layout()
+
+    save_path = os.path.join(
+        "figs",
+        f"sim2d_mvp_3.1.2_{BASELINE_MODE}_{DEGRADATION_CASE}_deadzone_sensitive_uwb.png"
+    )
+    plt.savefig(save_path, dpi=200)
+    print(f"\nFigure saved to: {save_path}")
+
+    plt.show()
+
+
+if __name__ == "__main__":
+    main()

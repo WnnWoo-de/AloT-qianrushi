@@ -1,0 +1,20 @@
+Dynamic obstacle trajectories:
+OBS1(t) = [15 + 6*cos(0.28*t), 15 + 4*sin(0.28*t + 0.35)]
+OBS2(t) = [5 + 20*(0.5 + 0.5*sin(0.22*t + 1.10)), 6 + 18*(0.5 + 0.5*sin(0.37*t))]
+
+Static obstacles:
+SOBS1 center = [12.0, 12.0], radius = 1.30
+SOBS2 center = [18.0, 18.0], radius = 1.30
+time range: 0.0s -> 45.0s, dt = 0.2s, samples = 226
+
+Robot start -> goal:
+R1: [2.0, 2.0] -> [28.0, 28.0], min obstacle clearance = -0.726 m
+R2: [28.0, 2.0] -> [2.0, 28.0], min obstacle clearance = 0.661 m
+R3: [2.0, 28.0] -> [28.0, 2.0], min obstacle clearance = 0.603 m
+R4: [28.0, 28.0] -> [2.0, 2.0], min obstacle clearance = 0.294 m
+
+Robot final positions:
+R1 final = [27.857, 27.851], distance to goal = 0.207 m
+R2 final = [2.195, 27.878], distance to goal = 0.230 m
+R3 final = [27.804, 2.108], distance to goal = 0.224 m
+R4 final = [2.148, 2.144], distance to goal = 0.206 m

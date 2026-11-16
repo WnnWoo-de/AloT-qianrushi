@@ -1,0 +1,9 @@
+Two-robot overlap strategy (clean dynamic-avoidance demonstration)
+time range: 0.0s -> 25.2s, dt=0.10s, samples=253
+shared corridor: A=[10.0, 14.0] -> B=[20.0, 14.0]
+R2 start delay: 1.2s
+
+R1 start=[2.0, 11.0] goal=[28.0, 19.0] final=[28.000,19.000] dist_to_goal=0.000m min_clearance=0.731m reached=yes arrive_time=25.20s
+R2 start=[2.0, 19.0] goal=[28.0, 11.0] final=[28.000,11.000] dist_to_goal=0.000m min_clearance=0.631m reached=yes arrive_time=20.50s
+
+shared-corridor samples: R1=16, R2=14

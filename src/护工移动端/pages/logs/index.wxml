@@ -1,0 +1,36 @@
+<view class="container">
+  <view class="card">
+    <view class="section-title">按老人筛选</view>
+    <view class="filter-row">
+      <block wx:for="{{elderFilters}}" wx:key="id">
+        <view class="filter-chip {{activeElderId === item.id ? 'active' : ''}}" data-id="{{item.id}}" bindtap="setFilter">{{item.name}}</view>
+      </block>
+    </view>
+    <view class="subtitle">护理日志按老人归档，可用于交接班、护理追溯与后续跟进。</view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">日志列表</view>
+    <block wx:if="{{displayLogs.length}}">
+      <block wx:for="{{displayLogs}}" wx:key="id">
+        <view class="list-item">
+          <view class="row align-start">
+            <view class="list-item-title">{{item.elderName}} · {{item.type}}</view>
+            <view class="muted time-text">{{item.createdAt}}</view>
+          </view>
+          <view class="list-item-desc">房间：{{item.roomNo}} ｜ 状态：{{item.mood}}</view>
+          <view class="list-item-desc">{{item.note}}</view>
+          <view class="tag-list">
+            <view wx:if="{{item.followUp}}" class="tag tag-yellow">需要跟进</view>
+            <view wx:else class="tag tag-green">已完成</view>
+          </view>
+        </view>
+      </block>
+    </block>
+    <view wx:else class="empty-wrap">当前筛选条件下暂无日志</view>
+  </view>
+
+  <view class="fixed-action">
+    <button class="btn-primary" bindtap="goAddLog">新增活动日志</button>
+  </view>
+</view>

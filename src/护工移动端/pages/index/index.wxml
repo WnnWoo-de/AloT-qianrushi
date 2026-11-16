@@ -1,0 +1,112 @@
+<view class="container with-tabbar-space main-tab-page">
+  <view class="card notice home-hero">
+    <view class="title">{{appName}}</view>
+    <view class="subtitle">{{intro}}</view>
+    <view class="subtitle">支持护工交班、日常照护留痕、突发事件上报与中心任务协同</view>
+
+    <view class="btn-row">
+      <button class="btn-primary" bindtap="goAddLog">记录活动日志</button>
+      <button class="btn-danger" bindtap="goEmergency">紧急报警</button>
+    </view>
+  </view>
+
+  <view wx:if="{{stats.pendingCenterAlertCount > 0}}" class="card notice-danger">
+    <view class="section-header">
+      <view>
+        <view class="section-title mb-0">中心报警待处理</view>
+        <view class="subtitle mt-8">当前有 {{stats.pendingCenterAlertCount}} 条报警待响应。新报警会优先显示全屏详情，退出后可到待办查看报警列表。</view>
+      </view>
+      <button class="mini-btn mini-btn-danger" bindtap="goTodo">去处理</button>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">今日概览</view>
+    <view class="grid">
+      <view class="grid-col-2">
+        <view class="small-card">
+          <view class="kpi-value">{{stats.elderCount}}</view>
+          <view class="kpi-label">在院老人</view>
+        </view>
+      </view>
+      <view class="grid-col-2">
+        <view class="small-card">
+          <view class="kpi-value">{{stats.todayLogCount}}</view>
+          <view class="kpi-label">今日日志</view>
+        </view>
+      </view>
+      <view class="grid-col-2">
+        <view class="small-card">
+          <view class="kpi-value">{{stats.needFollowUpCount}}</view>
+          <view class="kpi-label">待跟进记录</view>
+        </view>
+      </view>
+      <view class="grid-col-2">
+        <view class="small-card warning-soft">
+          <view class="kpi-value danger-text">{{stats.pendingCenterAlertCount}}</view>
+          <view class="kpi-label">中心待响应</view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="section-header">
+      <view class="section-title mb-0">老人列表</view>
+      <view class="link-text" bindtap="goLogs">查看全部日志</view>
+    </view>
+
+    <block wx:for="{{elders}}" wx:key="id">
+      <view class="list-item">
+        <view class="row">
+          <view class="list-item-title">{{item.name}} · {{item.roomNo}}</view>
+          <view class="tag {{item.riskClass}}">{{item.riskLevel}}</view>
+        </view>
+        <view class="list-item-desc">{{item.age}} 岁 ｜ {{item.careLevel}} ｜ 当前状态：{{item.status}}</view>
+        <view class="btn-row mt-16">
+          <button class="btn-secondary" data-id="{{item.id}}" bindtap="goLogForElder">写日志</button>
+          <button class="btn-outline" data-id="{{item.id}}" bindtap="goAlertForElder">发报警</button>
+        </view>
+      </view>
+    </block>
+  </view>
+
+  <view class="card">
+    <view class="section-title">最近日志</view>
+    <block wx:for="{{logs}}" wx:key="id">
+      <view class="list-item">
+        <view class="row align-start">
+          <view class="list-item-title">{{item.elderName}} · {{item.type}}</view>
+          <view class="muted time-text">{{item.createdAt}}</view>
+        </view>
+        <view class="list-item-desc">{{item.note}}</view>
+        <view class="tag-list">
+          <view class="tag">{{item.roomNo}}</view>
+          <view class="tag">{{item.mood}}</view>
+          <view wx:if="{{item.followUp}}" class="tag tag-yellow">需跟进</view>
+        </view>
+      </view>
+    </block>
+  </view>
+
+  <view class="card notice-danger">
+    <view class="section-title">中心报警动态</view>
+    <block wx:if="{{centerAlerts.length}}">
+      <block wx:for="{{centerAlerts}}" wx:key="id">
+        <view class="list-item">
+          <view class="row align-start">
+            <view class="list-item-title">{{item.elderName}} · {{item.alertType}}</view>
+            <view class="tag tag-red">{{item.level}}</view>
+          </view>
+          <view class="list-item-desc">{{item.location}} ｜ {{item.createdAt}}</view>
+          <view class="list-item-desc">{{item.note}}</view>
+          <view class="tag-list">
+            <view class="tag">{{item.source}}</view>
+            <view class="tag {{item.statusClass}}">{{item.status}}</view>
+          </view>
+        </view>
+      </block>
+    </block>
+    <view wx:else class="empty-wrap">暂无中心报警</view>
+  </view>
+</view>

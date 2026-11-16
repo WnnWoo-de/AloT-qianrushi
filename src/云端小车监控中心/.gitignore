@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+*.pid
+*.tmp
+.DS_Store
+backend/runtime/tmp/*
+!backend/runtime/tmp/.gitkeep

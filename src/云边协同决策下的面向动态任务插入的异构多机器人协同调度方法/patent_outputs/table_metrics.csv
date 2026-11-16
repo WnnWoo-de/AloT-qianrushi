@@ -1,0 +1,3 @@
+method,response_time_steps,global_replans,final_cov_window30,final_i_max,final_i_mean,final_load_std,mean_cov_window30,mean_i_max
+Proposed method,29,1,0.5813,154.00,35.16,131.84,0.5189,695.97
+Nearest + global replan,6,2,0.5854,133.00,28.72,148.77,0.5092,807.77

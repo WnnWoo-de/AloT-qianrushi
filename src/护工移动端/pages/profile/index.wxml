@@ -1,0 +1,68 @@
+<view class="container with-tabbar-space main-tab-page">
+  <view class="card notice profile-hero">
+    <view class="section-title">护工信息</view>
+    <view class="profile-name">{{profile.name}}</view>
+    <view class="list-item-desc">工号：{{profile.jobNo}} ｜ {{profile.role}}</view>
+    <view class="list-item-desc">负责区域：{{profile.ward}} ｜ 班次：{{profile.shift}}</view>
+    <view class="list-item-desc">所属班组：{{profile.team}}</view>
+    <view class="list-item-desc">紧急联络：{{profile.emergencyContact}}</view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">本班摘要</view>
+    <view class="grid">
+      <view class="grid-col-2">
+        <view class="small-card">
+          <view class="kpi-value">{{stats.todayLogCount}}</view>
+          <view class="kpi-label">今日日志</view>
+        </view>
+      </view>
+      <view class="grid-col-2">
+        <view class="small-card">
+          <view class="kpi-value">{{stats.todoPendingCount}}</view>
+          <view class="kpi-label">待办事项</view>
+        </view>
+      </view>
+      <view class="grid-col-2">
+        <view class="small-card warning-soft">
+          <view class="kpi-value danger-text">{{stats.pendingCenterAlertCount}}</view>
+          <view class="kpi-label">中心报警</view>
+        </view>
+      </view>
+      <view class="grid-col-2">
+        <view class="small-card">
+          <view class="kpi-value">{{profile.phone}}</view>
+          <view class="kpi-label">当前联络号</view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">快捷工作入口</view>
+    <view class="subtitle">快速进入待办任务与现场紧急上报，便于当班护工及时处理异常情况。</view>
+    <view class="btn-row">
+      <button class="btn-primary" bindtap="goTodo">查看待办</button>
+      <button class="btn-outline" bindtap="goEmergency">上报紧急情况</button>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">最近处理线索</view>
+    <view wx:if="{{recentCenterAlert}}" class="list-item no-border">
+      <view class="row align-start">
+        <view class="list-item-title">最新中心报警</view>
+        <view class="tag {{recentCenterAlert.statusClass}}">{{recentCenterAlert.status}}</view>
+      </view>
+      <view class="list-item-desc">{{recentCenterAlert.elderName}} · {{recentCenterAlert.alertType}} ｜ {{recentCenterAlert.createdAt}}</view>
+      <view class="list-item-desc">{{recentCenterAlert.note}}</view>
+      <button class="btn-outline mt-16" bindtap="goRecentAlertDetail">查看报警详情</button>
+    </view>
+
+    <view wx:if="{{recentLog}}" class="list-item no-border pt-0">
+      <view class="list-item-title">最新护理日志</view>
+      <view class="list-item-desc">{{recentLog.elderName}} · {{recentLog.type}} ｜ {{recentLog.createdAt}}</view>
+      <view class="list-item-desc">{{recentLog.note}}</view>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.idea/
+.vscode/
+.DS_Store
+*.log
+backend/runtime/cache/*.tmp
+backend/runtime/data/*
+!backend/runtime/data/video/
+!backend/runtime/data/video/.gitkeep

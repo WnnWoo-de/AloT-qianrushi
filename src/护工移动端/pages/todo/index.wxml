@@ -1,0 +1,103 @@
+<view class="container with-tabbar-space main-tab-page">
+  <view class="card notice-danger todo-hero">
+    <view class="section-title">中心报警待处理</view>
+    <view class="subtitle">中心报警按紧急等级进入处置队列，可在本页查看事件详情、处理状态和个人护理任务。</view>
+
+    <view class="grid mt-16">
+      <view class="grid-col-2">
+        <view class="small-card warning-soft">
+          <view class="kpi-value danger-text">{{stats.pendingCenterAlertCount}}</view>
+          <view class="kpi-label">待响应报警</view>
+        </view>
+      </view>
+      <view class="grid-col-2">
+        <view class="small-card">
+          <view class="kpi-value">{{stats.todoPendingCount}}</view>
+          <view class="kpi-label">个人待办</view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="section-title">报警列表</view>
+    <block wx:if="{{centerAlerts.length}}">
+      <block wx:for="{{centerAlerts}}" wx:key="id">
+        <view class="list-item">
+          <view class="row align-start">
+            <view>
+              <view class="list-item-title">{{item.elderName}} · {{item.alertType}}</view>
+              <view class="list-item-desc">房间：{{item.roomNo}} ｜ 位置：{{item.location}}</view>
+            </view>
+            <view class="tag tag-red">{{item.level}}</view>
+          </view>
+          <view class="list-item-desc">{{item.summaryText}}</view>
+          <view class="tag-list">
+            <view class="tag">{{item.source}}</view>
+            <view class="tag {{item.statusClass}}">{{item.status}}</view>
+            <view class="tag">{{item.createdAt}}</view>
+          </view>
+          <view class="btn-row mt-16">
+            <button class="btn-outline" data-id="{{item.id}}" bindtap="viewAlertDetail">查看详情</button>
+            <button wx:if="{{item.status === '待响应'}}" class="btn-danger" data-id="{{item.id}}" bindtap="startHandleAlert">立即处理</button>
+            <button wx:elif="{{item.status === '处理中'}}" class="btn-primary" data-id="{{item.id}}" bindtap="finishAlert">标记完成</button>
+          </view>
+        </view>
+      </block>
+    </block>
+    <view wx:else class="empty-wrap">当前没有待处理的中心报警</view>
+  </view>
+
+  <view class="card form-panel todo-form-card">
+    <view class="section-title">新增个人待办</view>
+    <view class="form-item">
+      <view class="form-label">待办内容</view>
+      <input class="input" placeholder="例如：15:00 陪同老人做康复训练" bindinput="bindTitleInput" value="{{todoTitle}}" />
+    </view>
+
+    <view class="form-item">
+      <view class="form-label">关联老人</view>
+      <input class="input" placeholder="可选，例如：张秀兰" bindinput="bindRelatedElderInput" value="{{relatedElderName}}" />
+    </view>
+
+    <view class="form-item">
+      <view class="form-label">期望时间</view>
+      <input class="input" placeholder="例如：今天 18:00 前" bindinput="bindDueInput" value="{{dueText}}" />
+    </view>
+
+    <view class="form-item">
+      <view class="form-label">优先级</view>
+      <picker range="{{priorityOptions}}" value="{{priorityIndex}}" bindchange="bindPriorityChange">
+        <view class="picker">{{priorityOptions[priorityIndex]}}</view>
+      </picker>
+    </view>
+
+    <button class="btn-primary form-submit-btn" bindtap="addTodoItem">添加待办</button>
+  </view>
+
+  <view class="card">
+    <view class="section-title">我的待办</view>
+    <block wx:if="{{todos.length}}">
+      <block wx:for="{{todos}}" wx:key="id">
+        <view class="list-item">
+          <view class="row align-start">
+            <view>
+              <view class="list-item-title {{item.doneClass}}">{{item.title}}</view>
+              <view class="list-item-desc">{{item.displayMeta}}</view>
+            </view>
+            <view class="tag {{item.priorityClass}}">{{item.priority}}优先</view>
+          </view>
+          <view class="tag-list">
+            <view class="tag {{item.doneTagClass}}">{{item.doneText}}</view>
+            <view class="tag">{{item.createdAt}}</view>
+          </view>
+          <view class="btn-row mt-16">
+            <button class="btn-secondary" data-id="{{item.id}}" bindtap="toggleTodo">{{item.toggleText}}</button>
+            <button class="btn-outline" data-id="{{item.id}}" bindtap="removeTodo">删除</button>
+          </view>
+        </view>
+      </block>
+    </block>
+    <view wx:else class="empty-wrap">暂无个人待办</view>
+  </view>
+</view>

@@ -1,0 +1,6 @@
+{
+  "public_api_base_url": "",
+  "public_ws_base_url": "",
+  "cache_dsn": "file://runtime/cache",
+  "trusted_proxy": ""
+}

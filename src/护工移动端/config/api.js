@@ -1,0 +1,8 @@
+module.exports = {
+  API_BASE_URL: '',
+  WS_BASE_URL: '',
+  API_PREFIX: '/api/v1',
+  TIMEOUT: 10000,
+  HEALTH_TIMEOUT: 1200,
+  OFFLINE_RETRY_INTERVAL: 30000
+}

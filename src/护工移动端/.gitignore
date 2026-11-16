@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+*.tmp
+backend/runtime/run/*.pid
+.DS_Store
+project.private.config.json

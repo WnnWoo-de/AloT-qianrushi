@@ -1,0 +1,7 @@
+.log-form-card {
+  padding-top: 34rpx;
+}
+
+.log-form-card .form-submit-btn {
+  margin-top: 8rpx;
+}

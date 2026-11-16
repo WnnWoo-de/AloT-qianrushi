@@ -1,0 +1,14 @@
+.title {
+  margin-bottom: 4rpx;
+  color: #163b5b;
+}
+
+.home-hero {
+  padding-top: 34rpx;
+  padding-bottom: 32rpx;
+  box-shadow: 0 16rpx 38rpx rgba(47, 128, 237, 0.11);
+}
+
+.home-hero .subtitle {
+  max-width: 620rpx;
+}

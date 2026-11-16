@@ -1,0 +1,7 @@
+.container {
+  padding-bottom: 190rpx;
+}
+
+.fixed-action .btn-primary {
+  margin: 0;
+}

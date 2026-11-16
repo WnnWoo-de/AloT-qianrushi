@@ -1,0 +1,12 @@
+{
+  "environment": "production",
+  "service_name": "silverguard-robot-search",
+  "node_id": "edge-gateway-2f",
+  "bind_host": "0.0.0.0",
+  "bind_port": 8000,
+  "public_server_ip": "",
+  "public_api_base_url": "",
+  "public_ws_base_url": "",
+  "cache_dsn": "file://runtime/cache",
+  "trusted_proxy": ""
+}

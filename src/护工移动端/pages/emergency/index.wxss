@@ -1,0 +1,7 @@
+.emergency-hero {
+  box-shadow: 0 16rpx 38rpx rgba(207, 52, 52, 0.08);
+}
+
+.form-submit-btn {
+  margin-top: 8rpx;
+}

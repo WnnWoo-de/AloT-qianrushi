@@ -1,0 +1,46 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/todo/index",
+    "pages/profile/index",
+    "pages/center-alert-detail/index",
+    "pages/logs/index",
+    "pages/log-add/index",
+    "pages/emergency/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "银龄卫士护工端",
+    "navigationBarBackgroundColor": "#f8fbff",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#eef5fb",
+    "backgroundTextStyle": "light"
+  },
+  "tabBar": {
+    "color": "#8293a5",
+    "selectedColor": "#2475d0",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "记录",
+        "iconPath": "assets/tabbar/record.png",
+        "selectedIconPath": "assets/tabbar/record-active.png"
+      },
+      {
+        "pagePath": "pages/todo/index",
+        "text": "待办",
+        "iconPath": "assets/tabbar/todo.png",
+        "selectedIconPath": "assets/tabbar/todo-active.png"
+      },
+      {
+        "pagePath": "pages/profile/index",
+        "text": "主页",
+        "iconPath": "assets/tabbar/profile.png",
+        "selectedIconPath": "assets/tabbar/profile-active.png"
+      }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

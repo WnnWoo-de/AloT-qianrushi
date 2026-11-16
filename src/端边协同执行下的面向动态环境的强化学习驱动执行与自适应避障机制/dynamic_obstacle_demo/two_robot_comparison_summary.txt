@@ -1,0 +1,16 @@
+Two-robot avoidance metric comparison
+强化学习避障 is compared with 贪心反应式APF基线.
+Baseline definition: greedy artificial potential field using current obstacle positions only; no lookahead prediction, no corridor priority yielding, weak robot-to-robot repulsion, oscillatory local-minimum escape, reduced cruising speed, and no final hard robot separation.
+
+Metrics:
+- success_rate: fraction of robots that reach goals.
+- mean_arrival_time_s: lower is better.
+- global_min_clearance_m: higher is safer; negative means collision or overlap.
+- collision_or_overlap_samples: lower is safer.
+- mean_abs_accel_mps2: lower is smoother.
+
+For percentage changes below, positive means RL is lower than APF; negative means RL is higher.
+Arrival-time reduction vs APF: 21.88%
+Acceleration reduction vs APF: 11.22%
+Clearance improvement: 0.235 m
+Collision/overlap sample reduction: 0

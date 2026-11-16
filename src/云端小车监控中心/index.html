@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>养老院多机器人协同搜索巡检大屏</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div id="viewport">
+    <main id="screen">
+      <header class="topbar">
+        <h1>养老院多机器人协同搜索巡检大屏</h1>
+        <div id="clock" class="clock">北京时间 2026年08月05日 星期三 10:19:14</div>
+      </header>
+
+      <section class="main-layout">
+        <div class="map-card">
+          <div class="map-header">
+            <div>
+              <div class="eyebrow">MULTI-ROBOT COLLABORATIVE SEARCH & PATROL</div>
+              <div class="map-title"><span id="floorTitle">二层</span> · 多机器人协同搜索态势</div>
+            </div>
+            <div class="map-header-right">
+              <div class="online-dot"></div>
+              <span>12 台机器人并行在线</span>
+              <span class="separator">|</span>
+              <span>3 个安全出口</span>
+              <span class="separator">|</span>
+              <span>分区任务已下发</span>
+              <span class="separator">|</span>
+              <span class="latency">延迟 <b id="latency">28 ms</b></span>
+            </div>
+          </div>
+
+          <div class="mission-banner">
+            <div class="mission-title-block">
+              <div class="mission-tag">当前任务</div>
+              <div class="mission-title" id="missionTitleText">日常巡检运行中</div>
+            </div>
+            <div class="mission-meta"><b>目标区域</b><span id="missionTargetText">2F 全区域巡检</span></div>
+            <div class="mission-meta"><b>协同策略</b><span>分区巡检 · 异常联动 · 动态补位</span></div>
+            <div class="mission-meta"><b>系统状态</b><span id="missionSystemText">巡检链路正常 · 未发现异常</span></div>
+          </div>
+
+          <div class="process-strip">
+            <div class="process-step done"><span>1</span><b>发现异常</b><small>边端检测异常徘徊行为</small></div>
+            <div class="process-step done"><span>2</span><b>分区派单</b><small>A/B/C 区任务同步下发</small></div>
+            <div class="process-step active" id="stepSearch"><span>3</span><b>协同搜索</b><small>多机器人并行搜索</small></div>
+            <div class="process-step" id="stepConfirm"><span>4</span><b>疑似确认</b><small>重点区域交叉复核</small></div>
+            <div class="process-step" id="stepClose"><span>5</span><b>闭环处置</b><small>护工接应与任务完成</small></div>
+          </div>
+
+          <div class="map-stage">
+            <svg id="floorMap" viewBox="0 30 1440 710" preserveAspectRatio="xMidYMin meet" role="img" aria-label="养老院楼层平面地图">
+              <defs>
+                <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+                  <feGaussianBlur stdDeviation="4" result="blur"/>
+                  <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+                <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+                  <path d="M 32 0 L 0 0 0 32" fill="none" stroke="rgba(62,126,216,.12)" stroke-width="1"/>
+                </pattern>
+                <linearGradient id="corridorGradient" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#122d53" stop-opacity=".92"/>
+                  <stop offset="1" stop-color="#0a1d39" stop-opacity=".96"/>
+                </linearGradient>
+              </defs>
+
+              <rect x="0" y="0" width="1440" height="790" fill="transparent"/>
+
+              <g id="floorPlan">
+                <rect class="building-shell" x="58" y="54" width="1324" height="680" rx="14"/>
+<path class="zone-fill zone-a" d="M78,75 H505 V714 H78 Z"/>
+                <path class="zone-fill zone-b" d="M505,75 H1360 V324 H505 Z"/>
+                <path class="zone-fill zone-c" d="M505,448 H1360 V714 H505 Z"/>
+<g class="zone-a-fill"><rect x="74" y="82" width="367" height="626" rx="18"/></g>
+                <g class="zone-b-fill"><rect x="585" y="82" width="767" height="233" rx="18"/></g>
+                <g class="zone-c-fill"><rect x="585" y="458" width="767" height="252" rx="18"/></g>
+<rect class="corridor" x="446" y="74" width="134" height="640" rx="8"/>
+                <rect class="corridor main-corridor-solid" x="78" y="324" width="1282" height="124" rx="8"/>
+                <rect class="corridor" x="930" y="324" width="124" height="390" rx="8"/>
+                <text class="corridor-label" x="510" y="377" text-anchor="middle">主走廊</text>
+                <text class="corridor-label vertical-label" x="514" y="205" text-anchor="middle">西侧走廊</text>
+                <text class="corridor-label vertical-label" x="996" y="585" text-anchor="middle">东侧走廊</text>
+<g class="service-room static-room"><rect x="91" y="320" width="145" height="46" rx="6"/><text x="164" y="342">机器人值守</text><text x="164" y="359">充电间</text></g>
+<g class="room" data-room="0"><rect x="91" y="91" width="333" height="100" rx="6"/><text x="258" y="145">双人病房 A</text></g>
+                <g class="room" data-room="1"><rect x="91" y="208" width="333" height="96" rx="6"/><text x="258" y="260">单人照护室</text></g>
+                <g class="room" data-room="2"><rect x="91" y="468" width="333" height="106" rx="6"/><text x="258" y="525">双人病房 B</text></g>
+                <g class="room" data-room="3"><rect x="91" y="590" width="333" height="108" rx="6"/><text x="258" y="648">无障碍卫生间</text></g>
+<g class="room" data-room="4"><rect x="602" y="91" width="285" height="100" rx="6"/><text x="744" y="145">康复活动室</text></g>
+                <rect class="corridor" x="724" y="191" width="40" height="17" rx="4"/>
+                <g class="room" data-room="5"><rect x="902" y="91" width="210" height="100" rx="6"/><text x="1007" y="145">理疗室</text></g>
+                <g class="room" data-room="6"><rect x="1127" y="91" width="210" height="100" rx="6"/><text x="1232" y="145">处置室</text></g>
+                <g class="room" data-room="7"><rect x="602" y="208" width="316" height="95" rx="6"/><text x="760" y="260">候诊休息区</text></g>
+                <g class="room" data-room="8"><rect x="1077" y="208" width="260" height="95" rx="6"/><text x="1207" y="260">医生办公室</text></g>
+<g class="room" data-room="9"><rect x="602" y="470" width="302" height="103" rx="6"/><text x="753" y="526">护士站</text></g>
+                <g class="room" data-room="10"><rect x="602" y="590" width="302" height="108" rx="6"/><text x="753" y="648">配药室</text></g>
+                <g class="room" data-room="11"><rect x="1077" y="470" width="260" height="103" rx="6"/><text x="1207" y="526">康复训练室</text></g>
+                <g class="room" data-room="12"><rect x="1077" y="590" width="260" height="108" rx="6"/><text x="1207" y="648">医疗设备间</text></g>
+<g class="core-block">
+                  <rect x="947" y="208" width="90" height="95" rx="6"/>
+                  <text x="992" y="245">电梯厅</text><text x="992" y="272">疏散楼梯</text>
+                </g>
+<g class="doors">
+                  <line x1="424" y1="128" x2="446" y2="128"/><line x1="424" y1="252" x2="446" y2="252"/>
+                  <line x1="424" y1="520" x2="446" y2="520"/><line x1="424" y1="642" x2="446" y2="642"/>
+                  <line x1="744" y1="191" x2="744" y2="208"/><line x1="682" y1="303" x2="682" y2="324"/><line x1="1007" y1="191" x2="1007" y2="208"/>
+                  <line x1="1210" y1="303" x2="1210" y2="324"/><line x1="720" y1="448" x2="720" y2="470"/>
+                  <line x1="820" y1="573" x2="820" y2="590"/><line x1="1188" y1="448" x2="1188" y2="470"/>
+                  <line x1="1188" y1="573" x2="1188" y2="590"/>
+                </g>
+
+                </g>
+<g class="corridor-overlay-layer">
+                  <rect class="corridor corridor-overlay" x="446" y="74" width="134" height="640" rx="8"/>
+                  <rect class="corridor corridor-overlay main-corridor-solid" x="78" y="324" width="1282" height="124" rx="8"/>
+                  <rect class="corridor corridor-overlay" x="930" y="324" width="124" height="390" rx="8"/>
+                  <text class="corridor-label" x="510" y="377" text-anchor="middle">主走廊</text>
+                  <text class="corridor-label vertical-label" x="514" y="205" text-anchor="middle">西侧走廊</text>
+                  <text class="corridor-label vertical-label" x="996" y="585" text-anchor="middle">东侧走廊</text>
+                </g>
+<g class="evacuation-routes">
+                  <path class="safety-route" d="M 224 387 L 118 387"/>
+                  <path class="safety-route" d="M 515 650 L 515 714"/>
+                  <path class="safety-route" d="M 1218 387 L 1322 387"/>
+                </g>
+                <g class="fixed-marker exit-marker exit-left"><circle cx="92" cy="387" r="12"/><text x="92" y="425" text-anchor="middle">安全出口 EXIT</text></g>
+                <g class="fixed-marker exit-marker exit-bottom"><circle cx="515" cy="714" r="12"/><text x="515" y="690" text-anchor="middle">安全出口 EXIT</text></g>
+                <g class="fixed-marker exit-marker exit-right"><circle cx="1348" cy="387" r="12"/><text x="1348" y="425" text-anchor="middle">安全出口 EXIT</text></g>
+                <g class="doors nurse-door"><line x1="904" y1="520" x2="930" y2="520"/></g>
+                <g class="fixed-marker fire-marker"><rect x="564" y="338" width="18" height="18" rx="3"/><text x="588" y="351">消防栓</text></g>
+                <g class="fixed-marker fire-marker"><rect x="952" y="214" width="18" height="18" rx="3"/><text x="977" y="227">灭火器</text></g>
+                <g class="fixed-marker fire-marker"><rect x="1038" y="456" width="18" height="18" rx="3"/><text x="1063" y="469">手动报警</text></g>
+                
+                <g class="fixed-marker misc-marker"><circle cx="1038" cy="103" r="8"/><text x="1053" y="107">电梯前室</text></g>
+<g class="zone-title title-a"><rect x="105" y="61" width="142" height="34" rx="17"/><text x="176" y="84">A 区 · 病房区</text></g>
+                <g class="zone-title title-b"><rect x="616" y="61" width="160" height="34" rx="17"/><text x="696" y="84">B 区 · 诊疗区</text></g>
+                <g class="zone-title title-c"><rect x="1090" y="404" width="176" height="34" rx="17"/><text x="1178" y="427">C 区 · 护理区</text></g>
+
+                                
+
+                <g id="waitingAlert" class="search-hotspot scenario-alert-hidden">
+                  <circle class="hotspot-ring hotspot-ring-1" cx="548" cy="205" r="18"/>
+                  <circle class="hotspot-ring hotspot-ring-2" cx="548" cy="205" r="31"/>
+                  <circle class="hotspot-core" cx="548" cy="205" r="8"/>
+                  <text x="596" y="188" text-anchor="start">走廊异常事件</text>
+                </g>
+<path id="navA" class="route route-a" d="M 475 280 L 475 150 L 260 150 L 260 270 L 475 270 L 475 500 L 260 500 L 260 645 L 475 645 L 475 370 L 180 370 L 180 280 L 475 280"/>
+                <path id="navB" class="route route-b" d="M 540 370 L 620 370 L 620 260 L 760 260 L 760 145 L 1005 145 L 1005 260 L 1235 260 L 1235 370 L 930 370 L 930 208 L 620 208 L 620 370 L 540 370"/>
+                <path id="navB2" class="route route-b" d="M 1007 145 L 1232 145 L 1232 255 L 1007 255 L 1007 145"/>
+                <path id="navC" class="route route-c" d="M 980 370 L 980 520 L 750 520 L 750 645 L 980 645 L 1205 645 L 1205 520 L 980 520 L 980 370"/>
+                <path id="navD" class="route route-d" d="M 160 386 L 512 386 L 512 118 L 512 386 L 992 386 L 992 650 L 992 386 L 1280 386 L 992 386 L 512 386 L 160 386"/>
+                <circle id="beaconA" class="route-beacon beacon-a" r="5"/>
+                <circle id="beaconB" class="route-beacon beacon-b" r="5"/>
+                <circle id="beaconC" class="route-beacon beacon-c" r="5"/>
+<g id="robotA1" class="robot robot-a">
+                  <circle class="robot-pulse" r="29"/><circle class="robot-ring" r="20"/><circle class="robot-body" r="13"/><path class="robot-heading" d="M0,-28 L-6,-18 L-2.2,-18 L-2.2,-11 L2.2,-11 L2.2,-18 L6,-18 Z"/>
+                  <path class="robot-face" d="M-7,-2 Q0,-8 7,-2 L7,5 Q0,10 -7,5 Z"/><circle class="eye" cx="-3" cy="1" r="1.8"/><circle class="eye" cx="3" cy="1" r="1.8"/>
+                  <g class="robot-tag centered"><rect x="-50" y="-48" width="100" height="24" rx="6"/><text x="0" y="-36" dominant-baseline="middle" text-anchor="middle">机器人 A1</text></g>
+                </g>
+                <g id="robotA2" class="robot robot-a robot-secondary">
+                  <circle class="robot-pulse" r="29"/><circle class="robot-ring" r="20"/><circle class="robot-body" r="13"/><path class="robot-heading" d="M0,-28 L-6,-18 L-2.2,-18 L-2.2,-11 L2.2,-11 L2.2,-18 L6,-18 Z"/>
+                  <path class="robot-face" d="M-7,-2 Q0,-8 7,-2 L7,5 Q0,10 -7,5 Z"/><circle class="eye" cx="-3" cy="1" r="1.8"/><circle class="eye" cx="3" cy="1" r="1.8"/>
+                  <g class="robot-tag centered"><rect x="-50" y="-48" width="100" height="24" rx="6"/><text x="0" y="-36" dominant-baseline="middle" text-anchor="middle">机器人 A2</text></g>
+                </g>
+                <g id="robotB1" class="robot robot-b">
+                  <circle class="robot-pulse" r="29"/><circle class="robot-ring" r="20"/><circle class="robot-body" r="13"/><path class="robot-heading" d="M0,-28 L-6,-18 L-2.2,-18 L-2.2,-11 L2.2,-11 L2.2,-18 L6,-18 Z"/>
+                  <path class="robot-face" d="M-7,-2 Q0,-8 7,-2 L7,5 Q0,10 -7,5 Z"/><circle class="eye" cx="-3" cy="1" r="1.8"/><circle class="eye" cx="3" cy="1" r="1.8"/>
+                  <g class="robot-tag centered"><rect x="-50" y="-48" width="100" height="24" rx="6"/><text x="0" y="-36" dominant-baseline="middle" text-anchor="middle">机器人 B1</text></g>
+                </g>
+                <g id="robotB2" class="robot robot-b robot-secondary">
+                  <circle class="robot-pulse" r="29"/><circle class="robot-ring" r="20"/><circle class="robot-body" r="13"/><path class="robot-heading" d="M0,-28 L-6,-18 L-2.2,-18 L-2.2,-11 L2.2,-11 L2.2,-18 L6,-18 Z"/>
+                  <path class="robot-face" d="M-7,-2 Q0,-8 7,-2 L7,5 Q0,10 -7,5 Z"/><circle class="eye" cx="-3" cy="1" r="1.8"/><circle class="eye" cx="3" cy="1" r="1.8"/>
+                  <g class="robot-tag centered"><rect x="-50" y="-48" width="100" height="24" rx="6"/><text x="0" y="-36" dominant-baseline="middle" text-anchor="middle">机器人 B2</text></g>
+                </g>
+                <g id="robotC1" class="robot robot-c">
+                  <circle class="robot-pulse" r="29"/><circle class="robot-ring" r="20"/><circle class="robot-body" r="13"/><path class="robot-heading" d="M0,-28 L-6,-18 L-2.2,-18 L-2.2,-11 L2.2,-11 L2.2,-18 L6,-18 Z"/>
+                  <path class="robot-face" d="M-7,-2 Q0,-8 7,-2 L7,5 Q0,10 -7,5 Z"/><circle class="eye" cx="-3" cy="1" r="1.8"/><circle class="eye" cx="3" cy="1" r="1.8"/>
+                  <g class="robot-tag centered"><rect x="-50" y="-48" width="100" height="24" rx="6"/><text x="0" y="-36" dominant-baseline="middle" text-anchor="middle">机器人 C1</text></g>
+                </g>
+                <g id="robotC2" class="robot robot-c robot-secondary">
+                  <circle class="robot-pulse" r="29"/><circle class="robot-ring" r="20"/><circle class="robot-body" r="13"/><path class="robot-heading" d="M0,-28 L-6,-18 L-2.2,-18 L-2.2,-11 L2.2,-11 L2.2,-18 L6,-18 Z"/>
+                  <path class="robot-face" d="M-7,-2 Q0,-8 7,-2 L7,5 Q0,10 -7,5 Z"/><circle class="eye" cx="-3" cy="1" r="1.8"/><circle class="eye" cx="3" cy="1" r="1.8"/>
+                  <g class="robot-tag centered"><rect x="-50" y="-48" width="100" height="24" rx="6"/><text x="0" y="-36" dominant-baseline="middle" text-anchor="middle">机器人 C2</text></g>
+                </g>
+                <g id="robotA3" class="robot robot-a robot-secondary">
+                  <circle class="robot-pulse" r="26"/><circle class="robot-ring" r="18"/><circle class="robot-body" r="12"/><path class="robot-heading" d="M0,-25 L-5,-16 L-1.8,-16 L-1.8,-10 L1.8,-10 L1.8,-16 L5,-16 Z"/>
+                  <path class="robot-face" d="M-6,-2 Q0,-7 6,-2 L6,4 Q0,8 -6,4 Z"/><circle class="eye" cx="-3" cy="1" r="1.5"/><circle class="eye" cx="3" cy="1" r="1.5"/>
+                  <g class="robot-tag compact centered"><rect x="-46" y="-46" width="92" height="22" rx="6"/><text x="0" y="-35" dominant-baseline="middle" text-anchor="middle">机器人 A3</text></g>
+                </g>
+                <g id="robotB3" class="robot robot-b robot-secondary">
+                  <circle class="robot-pulse" r="26"/><circle class="robot-ring" r="18"/><circle class="robot-body" r="12"/><path class="robot-heading" d="M0,-25 L-5,-16 L-1.8,-16 L-1.8,-10 L1.8,-10 L1.8,-16 L5,-16 Z"/>
+                  <path class="robot-face" d="M-6,-2 Q0,-7 6,-2 L6,4 Q0,8 -6,4 Z"/><circle class="eye" cx="-3" cy="1" r="1.5"/><circle class="eye" cx="3" cy="1" r="1.5"/>
+                  <g class="robot-tag compact centered"><rect x="-46" y="-46" width="92" height="22" rx="6"/><text x="0" y="-35" dominant-baseline="middle" text-anchor="middle">机器人 B3</text></g>
+                </g>
+                <g id="robotC3" class="robot robot-c robot-secondary">
+                  <circle class="robot-pulse" r="26"/><circle class="robot-ring" r="18"/><circle class="robot-body" r="12"/><path class="robot-heading" d="M0,-25 L-5,-16 L-1.8,-16 L-1.8,-10 L1.8,-10 L1.8,-16 L5,-16 Z"/>
+                  <path class="robot-face" d="M-6,-2 Q0,-7 6,-2 L6,4 Q0,8 -6,4 Z"/><circle class="eye" cx="-3" cy="1" r="1.5"/><circle class="eye" cx="3" cy="1" r="1.5"/>
+                  <g class="robot-tag compact centered"><rect x="-46" y="-46" width="92" height="22" rx="6"/><text x="0" y="-35" dominant-baseline="middle" text-anchor="middle">机器人 C3</text></g>
+                </g>
+
+              
+                <g id="robotD1" class="robot robot-d corridor-patrol">
+                  <circle class="robot-pulse" r="27"/><circle class="robot-ring" r="19"/><circle class="robot-body" r="12.5"/><path class="robot-heading" d="M0,-26 L-5,-17 L-2,-17 L-2,-10.5 L2,-10.5 L2,-17 L5,-17 Z"/>
+                  <path class="robot-face" d="M-6,-2 Q0,-7 6,-2 L6,4 Q0,8 -6,4 Z"/><circle class="eye" cx="-3" cy="1" r="1.6"/><circle class="eye" cx="3" cy="1" r="1.6"/>
+                  <g class="robot-tag centered"><rect x="-50" y="-48" width="100" height="24" rx="6"/><text x="0" y="-36" dominant-baseline="middle" text-anchor="middle">走廊 D1</text></g>
+                </g>
+                <g id="robotD2" class="robot robot-d robot-secondary corridor-patrol">
+                  <circle class="robot-pulse" r="27"/><circle class="robot-ring" r="19"/><circle class="robot-body" r="12.5"/><path class="robot-heading" d="M0,-26 L-5,-17 L-2,-17 L-2,-10.5 L2,-10.5 L2,-17 L5,-17 Z"/>
+                  <path class="robot-face" d="M-6,-2 Q0,-7 6,-2 L6,4 Q0,8 -6,4 Z"/><circle class="eye" cx="-3" cy="1" r="1.6"/><circle class="eye" cx="3" cy="1" r="1.6"/>
+                  <g class="robot-tag centered"><rect x="-50" y="-48" width="100" height="24" rx="6"/><text x="0" y="-36" dominant-baseline="middle" text-anchor="middle">D2 · 补位</text></g>
+                </g>
+                <g id="robotD3" class="robot robot-d corridor-patrol">
+                  <circle class="robot-pulse" r="27"/><circle class="robot-ring" r="19"/><circle class="robot-body" r="12.5"/><path class="robot-heading" d="M0,-26 L-5,-17 L-2,-17 L-2,-10.5 L2,-10.5 L2,-17 L5,-17 Z"/>
+                  <path class="robot-face" d="M-6,-2 Q0,-7 6,-2 L6,4 Q0,8 -6,4 Z"/><circle class="eye" cx="-3" cy="1" r="1.6"/><circle class="eye" cx="3" cy="1" r="1.6"/>
+                  <g class="robot-tag centered"><rect x="-50" y="-48" width="100" height="24" rx="6"/><text x="0" y="-36" dominant-baseline="middle" text-anchor="middle">走廊 D3</text></g>
+                </g>
+
+              </g>
+
+              <g class="north"><path d="M1395 85 L1410 115 L1395 108 L1380 115 Z"/><text x="1395" y="136" text-anchor="middle">N</text></g>
+            </svg>
+
+            <div class="map-corner corner-lt"></div><div class="map-corner corner-rt"></div>
+            <div class="map-corner corner-lb"></div><div class="map-corner corner-rb"></div>
+            <div class="live-telemetry">
+              <span><i></i>实时定位</span><span>分区并行搜索</span><span id="mapUpdated">数据刷新 --:--:--</span>
+            </div>
+          </div>
+        </div>
+
+        <aside class="side-panel">
+          <section class="panel-block floor-block">
+            <div class="panel-heading"><span></span>楼层切换</div>
+            <div class="floor-buttons" id="floorButtons">
+              <button type="button" data-floor="1"><strong>1F</strong><small>首层</small></button>
+              <button type="button" data-floor="2" class="active"><strong>2F</strong><small>二层</small></button>
+              <button type="button" data-floor="3"><strong>3F</strong><small>三层</small></button>
+            </div>
+          </section>
+
+          <section id="eventSummary" class="panel-block summary-block scenario-summary-hidden">
+            <div class="panel-heading"><span></span><b id="summaryHeadingText">事件摘要</b></div>
+            <div class="summary-grid">
+              <div class="summary-item"><b>事件类型</b><span id="eventTypeText">暂无异常</span></div>
+              <div class="summary-item"><b>处置等级</b><span id="eventLevelText">正常</span></div>
+              <div class="summary-item"><b>最新定位</b><span id="eventPosText">—</span></div>
+              <div class="summary-item"><b>联动状态</b><span id="eventLinkText">—</span></div>
+            </div>
+          </section>
+
+          <section class="panel-block robot-task-block">
+            <div class="panel-heading"><span></span>机器人分区任务</div>
+            <div class="robot-card robot-card-a">
+              <div class="robot-card-top"><b>A 区巡逻组 · A1 / A2 / A3</b><em id="statusA">巡逻中</em></div>
+              <p id="taskA">负责搜索区域：双人病房 A、单人照护室、机器人值守充电间、双人病房 B、无障碍卫生间。</p>
+              <div class="progress"><i id="progressA" style="width:72%"></i></div>
+              <div class="stats"><span>搜索覆盖中</span><span id="progressAText">实时进度 72%</span></div>
+            </div>
+            <div class="robot-card robot-card-b">
+              <div class="robot-card-top"><b>B 区巡逻组 · B1 / B2 / B3</b><em id="statusB">巡逻中</em></div>
+              <p id="taskB">负责搜索区域：康复活动室、候诊休息区、理疗室、处置室、医生办公室，以及电梯前室周边。</p>
+              <div class="progress"><i id="progressB" style="width:58%"></i></div>
+              <div class="stats"><span>搜索覆盖中</span><span id="progressBText">实时进度 58%</span></div>
+            </div>
+            <div class="robot-card robot-card-c">
+              <div class="robot-card-top"><b>C 区巡逻组 · C1 / C2 / C3</b><em id="statusC">巡逻中</em></div>
+              <p id="taskC">负责搜索区域：护士站、配药室、康复训练室、医疗设备间，以及护理区和东侧走廊邻接区域。</p>
+              <div class="progress"><i id="progressC" style="width:64%"></i></div>
+              <div class="stats"><span>搜索覆盖中</span><span id="progressCText">实时进度 64%</span></div>
+            </div>
+            <div class="robot-card robot-card-d">
+              <div class="robot-card-top"><b>D 区巡逻组 · D1 / D2 / D3</b><em id="statusD">巡逻中</em></div>
+              <p id="taskD">负责搜索区域：D1 负责西侧走廊与左侧出口，D2 负责主走廊及候诊区外侧连通段，D3 负责东侧走廊与右侧出口。</p>
+              <div class="progress"><i id="progressD" style="width:61%"></i></div>
+              <div class="stats"><span>搜索覆盖中</span><span id="progressDText">实时进度 61%</span></div>
+            </div>
+          </section>
+
+          <section class="panel-block zoom-block">
+            <div class="panel-heading"><span></span>地图补充视窗</div>
+            <div class="zoom-card">
+              <div class="zoom-card-title" id="zoomTitle1">补充视图 01 · 候诊休息区放大</div>
+              <div class="zoom-mini-map zoom-top">
+                <div class="mini-room room-left" id="zoomRoom1Left">候诊休息区</div>
+                <div class="mini-room room-right" id="zoomRoom1Right">医生办公室</div>
+                <div class="mini-route route-green"></div>
+                <div class="mini-robot robot-green r1">B1</div>
+                <div class="mini-robot robot-green r2">B3</div>
+                <div class="mini-pin" id="zoomMarker1">疑似点</div>
+              </div>
+            </div>
+            <div class="zoom-card">
+              <div class="zoom-card-title" id="zoomTitle2">补充视图 02 · 护理区放大</div>
+              <div class="zoom-mini-map zoom-bottom">
+                <div class="mini-room room-left" id="zoomRoom2Left">护士站 / 配药室</div>
+                <div class="mini-room room-right" id="zoomRoom2Right">康复训练室</div>
+                <div class="mini-route route-yellow"></div>
+                <div class="mini-robot robot-yellow r3">C1</div>
+                <div class="mini-robot robot-yellow r4">C3</div>
+                <div class="mini-node" id="zoomMarker2">东侧走廊</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel-block task-block">
+            <div class="panel-heading"><span></span>实时任务状态</div>
+            <div class="task-status-grid">
+              <div class="task-status-item"><b>当前事件</b><span id="taskStateText">异常徘徊搜索中</span></div>
+              <div class="task-status-item"><b>疑似区域</b><span id="riskZoneText">2F 候诊休息区</span></div>
+              <div class="task-status-item"><b>执行策略</b><span id="strategyText">并行搜索 + 动态补位</span></div>
+              <div class="task-status-item"><b>闭环状态</b><span id="closedLoopText">搜索中</span></div>
+            </div>
+          </section>
+
+          <section class="panel-block legend-block">
+            <div class="panel-heading"><span></span>地图图例</div>
+            <div class="legend-row"><i class="legend-zone a"></i><span>A 区 · A1/A2/A3</span></div>
+            <div class="legend-row"><i class="legend-zone b"></i><span>B 区 · B1/B2/B3</span></div>
+            <div class="legend-row"><i class="legend-zone c"></i><span>C 区 · C1/C2/C3</span></div>
+            <div class="legend-row"><i class="legend-zone d"></i><span>走廊巡逻 · D1/D2/D3</span></div>
+            <div class="legend-row"><i class="legend-route"></i><span>实时巡逻路径</span></div>
+            <div class="legend-row"><i class="legend-exit"></i><span>安全出口 / 疏散方向</span></div>
+            <div class="legend-row"><i class="legend-route"></i><span>闭环巡逻路线 / 机器人值守充电间</span></div>
+            <div class="legend-row"><i class="legend-fire"></i><span>消防设施 / 手动报警点</span></div>
+          </section>
+        </aside>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="./js/config.js"></script>
+  <script src="./js/api.js"></script>
+  <script src="./js/state.js"></script>
+  <script src="./app.js"></script>
+  <script src="./js/runtime.js"></script>
+  <script>window.SearchClientRuntime && SearchClientRuntime.start();</script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+# 本地依赖、编辑器与缓存
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+.vscode/
+.env
+.env.*
+!.env.example
+*.log
+# 原始压缩包留在本地，仓库使用已展开的源码，避免上传重复及未脱敏状态
+*.zip
+# 各端本地运行数据可能含老人、护工信息与访问日志，不进入仓库
+**/backend/runtime/**
+!**/backend/runtime/**/
+!**/backend/runtime/**/.gitkeep
+project.private.config.json
+runtime/
+artifacts/
+.pytest_cache/

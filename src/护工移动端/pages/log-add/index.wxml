@@ -1,0 +1,43 @@
+<view class="container">
+  <view class="card form-panel log-form-card">
+    <view class="section-title">填写护理日志</view>
+
+    <view class="form-item">
+      <view class="form-label">选择老人</view>
+      <picker range="{{elders}}" range-key="name" value="{{elderIndex}}" bindchange="bindElderChange">
+        <view class="picker">{{elders[elderIndex].name}} · {{elders[elderIndex].roomNo}}</view>
+      </picker>
+    </view>
+
+    <view class="form-item">
+      <view class="form-label">记录类型</view>
+      <picker range="{{logTypeOptions}}" value="{{logTypeIndex}}" bindchange="bindLogTypeChange">
+        <view class="picker">{{logTypeOptions[logTypeIndex]}}</view>
+      </picker>
+    </view>
+
+    <view class="form-item">
+      <view class="form-label">老人状态</view>
+      <picker range="{{moodOptions}}" value="{{moodIndex}}" bindchange="bindMoodChange">
+        <view class="picker">{{moodOptions[moodIndex]}}</view>
+      </picker>
+    </view>
+
+    <view class="form-item">
+      <view class="form-label">护理内容</view>
+      <textarea class="textarea" placeholder="请输入活动过程、饮食情况、服药情况、生命体征或异常观察..." bindinput="bindNoteInput" value="{{note}}"></textarea>
+    </view>
+
+    <view class="form-item">
+      <view class="row">
+        <view>
+          <view class="form-label">是否需要后续跟进</view>
+          <view class="muted">例如复测血压、补充观察、通知护士</view>
+        </view>
+        <switch checked="{{followUp}}" bindchange="bindFollowUpChange" color="#2475d0" />
+      </view>
+    </view>
+
+    <button class="btn-primary form-submit-btn" bindtap="submitForm">保存日志</button>
+  </view>
+</view>

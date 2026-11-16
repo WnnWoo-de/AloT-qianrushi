@@ -1,0 +1,89 @@
+<view wx:if="{{alert}}" class="full-screen-page">
+  <view class="safe-top" style="height: {{topSafeHeight}}px;"></view>
+
+  <view class="hero {{statusClass}}">
+    <view class="hero-top">
+      <view>
+        <view class="hero-label">中心紧急情况</view>
+        <view class="hero-title">{{alert.alertType}}</view>
+      </view>
+      <view class="hero-status">{{alert.status}}</view>
+    </view>
+    <view class="hero-subtitle">{{alert.elderName}} · {{alert.roomNo}} ｜ {{alert.level}}</view>
+    <view class="hero-meta">报警编号：{{alert.alertCode}}</view>
+    <view class="hero-meta">触发时间：{{alert.createdAt}} ｜ 来源：{{alert.source}}</view>
+  </view>
+
+  <scroll-view scroll-y class="detail-scroll">
+    <view class="detail-card emphasis-card">
+      <view class="detail-title">当前紧急情况</view>
+      <view class="detail-text">{{alert.note}}</view>
+      <view class="location-panel">
+        <view class="location-label">事发位置</view>
+        <view class="location-value">{{alert.location}}</view>
+        <view class="location-room">房间：{{alert.roomNo}}</view>
+      </view>
+      <view class="detail-text">老人信息：{{alert.elderName}}，{{alert.elderAge}} 岁，{{alert.careLevel}}，{{alert.riskLevel}}</view>
+      <view class="detail-text">建议：优先到场确认生命体征、意识状态和周边环境风险。</view>
+    </view>
+
+    <view wx:if="{{isHeartRateAlert}}" class="detail-card">
+      <view class="detail-title">心率异常详情</view>
+      <view class="metric-grid">
+        <view class="metric-box">
+          <view class="metric-value danger">{{alert.heartRateCurrent}}</view>
+          <view class="metric-label">当前心率（次/分钟）</view>
+        </view>
+        <view class="metric-box">
+          <view class="metric-value">{{alert.heartRateThreshold}}</view>
+          <view class="metric-label">报警阈值</view>
+        </view>
+      </view>
+      <view class="detail-text">设备：{{alert.sensorName}}</view>
+      <view class="detail-text">老人基线：{{alert.heartRateBaseline}}</view>
+      <view class="detail-text">异常说明：{{alert.abnormalDescription}}</view>
+      <view class="detail-text">现场摘要：{{alert.sceneSummary}}</view>
+    </view>
+
+    <view wx:if="{{!isHeartRateAlert && !isFallAlert}}" class="detail-card">
+      <view class="detail-title">报警补充信息</view>
+      <view class="detail-text">现场摘要：{{alert.sceneSummary}}</view>
+    </view>
+
+    <view class="detail-card">
+      <view class="detail-title">快速联络</view>
+      <view class="contact-item">
+        <view class="contact-label">紧急联系人</view>
+        <view class="contact-value">{{emergencyContactText}}</view>
+      </view>
+      <view class="contact-item">
+        <view class="contact-label">值班护士</view>
+        <view class="contact-value">{{nurseText}}</view>
+      </view>
+    </view>
+
+    <view class="detail-card">
+      <view class="detail-title">处理状态</view>
+      <view class="detail-text">当前状态：{{alert.status}}</view>
+      <view class="detail-text">指派护工：{{alert.assignedTo}}</view>
+      <view wx:if="{{alert.handledAt}}" class="detail-text">完成时间：{{alert.handledAt}}</view>
+    </view>
+
+    <view class="bottom-space"></view>
+  </scroll-view>
+
+  <view class="action-panel">
+    <view class="btn-row no-top">
+      <button class="btn-outline" bindtap="callEmergencyContact">呼叫紧急联系人</button>
+      <button class="btn-primary" bindtap="callNurse">呼叫护士</button>
+    </view>
+    <button wx:if="{{alert.status === '待响应'}}" class="btn-danger mt-16" bindtap="acceptAlert">我已到场处理</button>
+    <button wx:elif="{{alert.status === '处理中'}}" class="btn-danger mt-16" bindtap="finishAlert">处理完成</button>
+    <button wx:else class="btn-secondary mt-16" disabled>当前报警已完成</button>
+    <button class="exit-btn" bindtap="exitToAlertList">退出查看报警列表</button>
+  </view>
+</view>
+
+<view wx:else class="container">
+  <view class="card">未找到报警详情</view>
+</view>
