@@ -1,0 +1,7 @@
+# 后端与自动化测试；算法训练依赖另行安装
+fastapi==0.117.1
+pydantic>=2.9,<3
+uvicorn[standard]>=0.30,<1
+httpx>=0.27,<1
+websockets>=15,<16
+pytest>=8,<9

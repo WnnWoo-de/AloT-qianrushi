@@ -1,0 +1,47 @@
+{
+  "kind": "simulation-not-field-test",
+  "command": [
+    "scripts/reproduce.py",
+    "scheduling",
+    "--runs",
+    "20"
+  ],
+  "python": "3.13.7",
+  "numpy": "2.3.5",
+  "matplotlib": "3.10.8",
+  "source": "src\\云边协同决策下的面向动态任务插入的异构多机器人协同调度方法\\patent_simulation.py",
+  "sha256": "25cac883a5605fff9e494b7f8960bf3f308e9dd04e4007471587ab9f009b6700",
+  "seeds": [
+    55,
+    72,
+    89,
+    106,
+    123,
+    140,
+    157,
+    174,
+    191,
+    208,
+    225,
+    242,
+    259,
+    276,
+    293,
+    310,
+    327,
+    344,
+    361,
+    378
+  ],
+  "event_steps": [
+    80
+  ],
+  "return_steps": [
+    120
+  ],
+  "total_steps": 220,
+  "coverage_window_steps": 40,
+  "coverage_unit": "ratio [0,1]",
+  "latency_unit": "step",
+  "scope": "单事件配置，不能直接对应PDF双事件曲线"
+}

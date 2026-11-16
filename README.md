@@ -18,14 +18,37 @@
 
 原作品 PDF 和介绍视频位于 `√银龄卫士——面向智慧养老院的端边云协同多机器人网络系统/`。大视频使用 Git LFS，克隆后执行 `git lfs pull`。原始 ZIP 保留本地，版本库只跟踪展开源码。后端运行状态、访问日志与现场视频不公开上传，首次启动可能没有演示业务数据。
 
-## 原型启动
+## 本轮优化与一键联调
+
+```bash
+pip install -r requirements.txt
+python scripts/run_stack.py
+```
+
+三端默认共享同机 SQLite 事务状态，补齐事件幂等、一次派单、接单/到场回执、护工确认、跨进程 WebSocket 转发和重启恢复。事件入口必须提供稳定的 `event_id`、`run_id`、`type`、`position`。该实现是软件联调链路，**不包含实体车驱动，也不是跨主机生产部署**。
+
+- [联调、接口与现场验收](docs/联调与验收.md)
+- [仿真复现、真实方法标注与本轮结果](docs/仿真复现与结果.md)
+- [逐轮实测记录模板](docs/实测记录模板.csv)
+
+```bash
+python -m pytest tests -q
+python scripts/verify_stack.py
+node tests/mobile-confirmation.cjs
+```
+
+本机验证：5 项 Python 测试、三端真实 HTTP/WS 进程联调及重启恢复、移动端确认一致性测试通过；GitHub CI 配置已加入，远端执行结果以 Actions 为准。未进行实车或微信工具界面验收。
+
+仿真已复跑：调度 20 个对齐种子，明确单事件配置、覆盖收益与响应代价；避障改为规则控制标注，统一速度/起步/硬约束并去掉基线人为摆动，保留 APF 碰撞失败结果，不冒充 SAC 部署。
+
+## 分端启动
 
 推荐 Python 3.11+。三个后端都使用顶层 `app` 包，必须在各自 `backend` 目录启动，并分配不同端口：
 
 ```bash
 python -m venv .venv
 # Windows: .venv\Scripts\activate；Linux/macOS: source .venv/bin/activate
-pip install fastapi 'uvicorn[standard]' pydantic
+pip install -r requirements.txt
 
 # 在三个独立终端分别进入以下目录执行对应命令
 cd src/云端小车监控中心/backend
@@ -44,7 +67,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8003
 
 详见 [评语自查与 TODO](银龄卫士-评语自查与TODO.md)。当前材料支持仿真、短时双车场景演示及多终端原型，不等价于真实养老院长期运行证明。
 
-优先补齐：事件去重与跨端任务闭环、可重启恢复、同一事件的追踪记录；其次统一仿真实验配置和控制对比条件。双实体车重复试验、跨班次连续运行、急停与人工接管必须在授权场地实测，不能用接口测试或仿真冒充。
+已补充软件侧事件去重、三端共享任务闭环、重启恢复、追踪记录与复现脚本。原 TODO 的实车/现场验收条件尚未满足：双实体车重复试验、跨班次连续运行、急停与人工接管必须在授权场地实测，不能用接口测试或仿真冒充。
 
 目录中历史命名含“强化学习”，不代表已验证 SAC Actor 在实车部署；规则控制演示需要按真实方法标注，不能将不同速度设置下的耗时差异单独归因于算法。
 

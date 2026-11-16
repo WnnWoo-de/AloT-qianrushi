@@ -79,7 +79,7 @@
     </view>
     <button wx:if="{{alert.status === '待响应'}}" class="btn-danger mt-16" bindtap="acceptAlert">我已到场处理</button>
     <button wx:elif="{{alert.status === '处理中'}}" class="btn-danger mt-16" bindtap="finishAlert">处理完成</button>
-    <button wx:else class="btn-secondary mt-16" disabled>当前报警已完成</button>
+    <button wx:else class="btn-secondary mt-16" disabled>{{alert.status === '失败' ? '任务失败，请人工接管并排查' : '当前报警已完成'}}</button>
     <button class="exit-btn" bindtap="exitToAlertList">退出查看报警列表</button>
   </view>
 </view>

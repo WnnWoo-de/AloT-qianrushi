@@ -1,0 +1,1 @@
+run_id,event_id,task_id,robot_id,site,environment,version,map_version,scenario,phase,timestamp_utc,clock_offset_ms,status,failure_reason,video_path,video_offset_s,trajectory_path,manual_intervention

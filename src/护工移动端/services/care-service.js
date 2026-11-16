@@ -32,7 +32,8 @@ function normalizeEvent(event) {
     id: payload.id || payload.event_id,
     alertType: payload.alertType || payload.alert_type || payload.type || payload.event_type,
     level: payload.level || payload.severity || '',
-    location: payload.location || (payload.position && payload.position.name) || payload.area || '',
+    status: payload.status === '已处理' || payload.status === '已完成' ? '已完成' : (payload.status === '失败' ? '失败' : (payload.care_started_at || payload.status === '处理中' ? '处理中' : '待响应')),
+    location: payload.location || (typeof payload.position === 'string' ? payload.position : (payload.position && payload.position.name)) || payload.area || '',
     createdAt: payload.createdAt || payload.created_at || payload.timestamp || '',
     popupShown: payload.popupShown !== undefined ? payload.popupShown : Boolean(payload.popup_shown)
   })
@@ -192,11 +193,13 @@ function markCenterAlertPopupShown(alertId) {
 }
 
 function updateCenterAlertStatus(alertId, status) {
-  const localUpdate = function () { return store.updateCenterAlertStatus(alertId, status) }
-  if (!api.isServiceAvailable()) return local(localUpdate())
-  return api.updateEvent(alertId, { status })
-    .then(function () { return localUpdate() })
-    .catch(function () { return localUpdate() })
+  // 护工确认必须得到服务端成功回执，不能断网后只改缓存并显示成功。
+  if (!api.isServiceAvailable()) return Promise.reject(new Error('服务离线，尚未完成云端确认，请恢复网络后重试'))
+  const profile = store.getCaregiverProfile()
+  const handledBy = profile.id || profile.caregiver_id || profile.name
+  if (!handledBy) return Promise.reject(new Error('请先配置护工身份'))
+  return api.updateEvent(alertId, { status, handled_by: handledBy })
+    .then(function (item) { return store.upsertCenterAlert(normalizeEvent(item)) })
 }
 
 function getCaregiverProfile() {

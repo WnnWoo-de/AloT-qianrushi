@@ -1,0 +1,22 @@
+[
+  {
+    "method": "patent",
+    "total": 20,
+    "success": 20,
+    "failed_or_timeout": 0,
+    "mean_success_response_steps": 20.35,
+    "worst_success_response_steps": 31,
+    "mean_event_min_coverage_ratio": 0.6194998974499004,
+    "worst_event_min_coverage_ratio": 0.5730180806675939
+  },
+  {
+    "method": "baseline",
+    "total": 20,
+    "success": 20,
+    "failed_or_timeout": 0,
+    "mean_success_response_steps": 12.8,
+    "worst_success_response_steps": 20,
+    "mean_event_min_coverage_ratio": 0.16879826031745945,
+    "worst_event_min_coverage_ratio": 0.10347222222222222
+  }
+]

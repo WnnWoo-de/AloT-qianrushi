@@ -87,7 +87,7 @@ SAFE_MARGIN_STATIC = 0.45
 SAFE_MARGIN_BETWEEN_ROBOTS = 0.95
 
 METHOD_LABELS = {
-    "rl": "强化学习避障",
+    "rl": "预测式规则避障（非SAC）",
     "apf": "贪心反应式APF基线",
 }
 METHOD_COLORS = {
@@ -95,7 +95,7 @@ METHOD_COLORS = {
     "apf": "#7f080c",
 }
 METHOD_SHORT_LABELS = {
-    "rl": "强化学习\n避障",
+    "rl": "预测式规则\n避障（非SAC）",
     "apf": "贪心反应式\nAPF基线",
 }
 
@@ -173,6 +173,7 @@ def run_simulation(method: str = "rl") -> tuple[np.ndarray, np.ndarray, np.ndarr
     if method not in METHOD_LABELS:
         raise ValueError(f"Unknown method: {method}")
 
+    # 历史键名 rl 仅为兼容旧输出；此分支没有 Actor 推理，不是 SAC。
     use_rl_policy = method == "rl"
     n_robots = len(ROBOT_NAMES)
     max_steps = int(round(MAX_SIM_TIME / DT)) + 1
@@ -211,7 +212,7 @@ def run_simulation(method: str = "rl") -> tuple[np.ndarray, np.ndarray, np.ndarr
                 continue
 
             progress[i] = _robot_progress(wp_idx[i], cur_pos[i], ROBOT_WAYPOINTS[i])
-            if use_rl_policy and t < ROBOT_START_DELAY[i]:
+            if t < ROBOT_START_DELAY[i]:
                 desired_vel[i] = np.zeros(2, dtype=float)
                 continue
 
@@ -271,14 +272,11 @@ def run_simulation(method: str = "rl") -> tuple[np.ndarray, np.ndarray, np.ndarr
                     tangent += 0.74 * turn_sign * np.array([-normal[1], normal[0]])
 
             direction = attraction + avoid + tangent
-            if not use_rl_policy:
-                lateral = np.array([-target_dir[1], target_dir[0]])
-                oscillation = math.sin(1.75 * t + i * math.pi + 0.35 * wp_idx[i])
-                direction += 0.56 * oscillation * lateral
+            # 不给 APF 人为叠加摆动；两组使用相同巡航速度与起步时序。
             if norm2(direction) < 1e-9:
                 direction = target_dir
             speed_scale = min(1.0, max(0.20, dist_target / 2.0))
-            method_speed = ROBOT_MAX_SPEED[i] if use_rl_policy else ROBOT_MAX_SPEED[i] * 0.68
+            method_speed = ROBOT_MAX_SPEED[i]
             desired_vel[i] = direction / (norm2(direction) + 1e-9) * (method_speed * speed_scale)
 
         # Robot-to-robot avoidance and time-slot yielding for overlap segment.
@@ -327,28 +325,27 @@ def run_simulation(method: str = "rl") -> tuple[np.ndarray, np.ndarray, np.ndarr
                 next_pos[i] = ROBOT_GOALS[i].copy()
                 next_vel[i] = np.zeros(2, dtype=float)
 
-        if use_rl_policy:
-            # Final hard separation.
-            delta = next_pos[0] - next_pos[1]
-            d = norm2(delta)
-            if d < SAFE_MARGIN_BETWEEN_ROBOTS:
-                if d < 1e-9:
-                    delta = np.array([1.0, 0.0])
-                    d = 1.0
-                push_dir = delta / d
-                gap = SAFE_MARGIN_BETWEEN_ROBOTS - d
-                if completed[0] and not completed[1]:
-                    next_pos[1] = np.clip(next_pos[1] - gap * push_dir, WORLD_MIN, WORLD_MAX)
-                    next_vel[1] = (next_pos[1] - cur_pos[1]) / DT
-                elif completed[1] and not completed[0]:
-                    next_pos[0] = np.clip(next_pos[0] + gap * push_dir, WORLD_MIN, WORLD_MAX)
-                    next_vel[0] = (next_pos[0] - cur_pos[0]) / DT
-                else:
-                    push = 0.5 * gap * push_dir
-                    next_pos[0] = np.clip(next_pos[0] + push, WORLD_MIN, WORLD_MAX)
-                    next_pos[1] = np.clip(next_pos[1] - push, WORLD_MIN, WORLD_MAX)
-                    next_vel[0] = (next_pos[0] - cur_pos[0]) / DT
-                    next_vel[1] = (next_pos[1] - cur_pos[1]) / DT
+        # 相同的最终硬间距投影用于两组；这是仿真约束，不是实车安全保证。
+        delta = next_pos[0] - next_pos[1]
+        d = norm2(delta)
+        if d < SAFE_MARGIN_BETWEEN_ROBOTS:
+            if d < 1e-9:
+                delta = np.array([1.0, 0.0])
+                d = 1.0
+            push_dir = delta / d
+            gap = SAFE_MARGIN_BETWEEN_ROBOTS - d
+            if completed[0] and not completed[1]:
+                next_pos[1] = np.clip(next_pos[1] - gap * push_dir, WORLD_MIN, WORLD_MAX)
+                next_vel[1] = (next_pos[1] - cur_pos[1]) / DT
+            elif completed[1] and not completed[0]:
+                next_pos[0] = np.clip(next_pos[0] + gap * push_dir, WORLD_MIN, WORLD_MAX)
+                next_vel[0] = (next_pos[0] - cur_pos[0]) / DT
+            else:
+                push = 0.5 * gap * push_dir
+                next_pos[0] = np.clip(next_pos[0] + push, WORLD_MIN, WORLD_MAX)
+                next_pos[1] = np.clip(next_pos[1] - push, WORLD_MIN, WORLD_MAX)
+                next_vel[0] = (next_pos[0] - cur_pos[0]) / DT
+                next_vel[1] = (next_pos[1] - cur_pos[1]) / DT
 
         robot_pos[k + 1] = next_pos
         robot_vel[k + 1] = next_vel
@@ -765,7 +762,7 @@ def save_comparison_summary(out_dir: Path, metrics: list[dict[str, float | str]]
         f.write("- global_min_clearance_m: higher is safer; negative means collision or overlap.\n")
         f.write("- collision_or_overlap_samples: lower is safer.\n")
         f.write("- mean_abs_accel_mps2: lower is smoother.\n\n")
-        f.write("For percentage changes below, positive means RL is lower than APF; negative means RL is higher.\n")
+        f.write("For percentage changes below, positive means predictive RULE control is lower than APF; negative means higher. No SAC Actor is loaded.\n")
         f.write(
             f"Arrival-time reduction vs APF: {change('mean_arrival_time_s'):.2f}%\n"
             f"Acceleration reduction vs APF: {change('mean_abs_accel_mps2'):.2f}%\n"
@@ -959,7 +956,7 @@ def save_robot_metric_table_plot(out_dir: Path, metrics: list[dict[str, float | 
     ax.axis("off")
     table = ax.table(
         cellText=cell_text,
-        colLabels=["评价指标", "强化学习避障", "APF基线方法", "判定标准"],
+        colLabels=["评价指标", "预测式规则避障（非SAC）", "APF基线方法", "判定标准"],
         loc="center",
         cellLoc="center",
         colLoc="center",
@@ -989,9 +986,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Clean two-robot dynamic obstacle avoidance demo.")
     parser.add_argument("--skip-gif", action="store_true", help="Skip GIF generation.")
     parser.add_argument("--frame-stride", type=int, default=2, help="GIF frame stride.")
+    parser.add_argument("--output-dir", type=Path, default=Path("artifacts/avoidance"), help="Separate regenerated results from historical figures.")
     args = parser.parse_args()
 
-    out_dir = Path(__file__).resolve().parent
+    out_dir = args.output_dir.resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
     times, robot_pos, robot_vel, dyn_traj, wp_idx_hist, arrive_times = run_simulation(method="rl")
     min_clear = min_clearance_to_any_obstacle(robot_pos, dyn_traj)
 

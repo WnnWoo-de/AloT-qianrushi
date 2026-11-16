@@ -38,6 +38,12 @@ app = FastAPI(
     redoc_url=None,
 )
 
+# 三端默认共享同机事务状态；SILVERGUARD_LEGACY=1 可查看历史原型。
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+from silverguard.api import install as install_collaboration, finalize as finalize_collaboration
+install_collaboration(app, hub)
+
 @app.middleware("http")
 async def request_context(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:16]
@@ -132,3 +138,5 @@ def frontend_style(): return FileResponse(PROJECT_ROOT / "style.css", media_type
 
 @app.get("/", include_in_schema=False)
 def frontend_index(): return FileResponse(PROJECT_ROOT / "index.html")
+
+finalize_collaboration(app)

@@ -19,6 +19,13 @@ API_PREFIX="/api/v1"
 app=FastAPI(title="银龄卫士护工移动端服务",version="1.0.0")
 app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_credentials=False,allow_methods=["*"],allow_headers=["*"])
 
+# 在原业务路由前安装共享事件/任务 API。
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+from silverguard.api import install as install_collaboration, finalize as finalize_collaboration
+install_collaboration(app, hub)
+
 @app.middleware("http")
 async def request_context(request:Request,call_next):
     request_id=request.headers.get("X-Request-ID") or uuid.uuid4().hex[:16]; started=time.perf_counter(); response=await call_next(request)
@@ -104,3 +111,5 @@ async def monitor(websocket:WebSocket):
             except asyncio.TimeoutError: await websocket.send_json({"type":"system_update","data":service.system_status()})
     except WebSocketDisconnect: hub.disconnect(websocket)
     except Exception: hub.disconnect(websocket)
+
+finalize_collaboration(app)

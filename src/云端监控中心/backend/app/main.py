@@ -32,6 +32,12 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="银龄卫士云端监控服务", version="1.1.0", lifespan=lifespan)
 
 
+# 在原业务路由前安装共享事件/任务 API。
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+from silverguard.api import install as install_collaboration, finalize as finalize_collaboration
+install_collaboration(app, hub)
+
 @app.middleware("http")
 async def request_context(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:16]
@@ -154,6 +160,9 @@ async def monitor(websocket: WebSocket):
 app.mount("/css", StaticFiles(directory=PROJECT_ROOT / "css"), name="css")
 app.mount("/js", StaticFiles(directory=PROJECT_ROOT / "js"), name="js")
 app.mount("/images", StaticFiles(directory=PROJECT_ROOT / "images"), name="images")
+# 干净克隆不包含运行时素材，静态目录须在挂载前创建。
+(PROJECT_ROOT / "backend/runtime/data/video").mkdir(parents=True, exist_ok=True)
+(PROJECT_ROOT / "backend/runtime/cache/assets").mkdir(parents=True, exist_ok=True)
 app.mount(
     "/backend/runtime/data/video",
     StaticFiles(directory=PROJECT_ROOT / "backend" / "runtime" / "data" / "video"),
@@ -175,3 +184,5 @@ def frontend_cache_snapshot():
 @app.get("/", include_in_schema=False)
 def frontend_index():
     return FileResponse(PROJECT_ROOT / "index.html")
+
+finalize_collaboration(app)

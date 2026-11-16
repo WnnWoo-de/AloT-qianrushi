@@ -1,0 +1,29 @@
+{
+  "kind": "simulation-not-field-test",
+  "command": [
+    "scripts/reproduce.py",
+    "avoidance"
+  ],
+  "python": "3.13.7",
+  "numpy": "2.3.5",
+  "matplotlib": "3.10.8",
+  "source": "src\\端边协同执行下的面向动态环境的强化学习驱动执行与自适应避障机制\\dynamic_obstacle_demo\\two_robot_overlap_demo.py",
+  "sha256": "fdf1dcda4293dd3b376debdf603aed9e75401aff82f477b249d66261b3169052",
+  "methods": {
+    "rl": "预测式规则避障（非SAC）",
+    "apf": "贪心反应式APF基线"
+  },
+  "robot_max_speed_mps": [
+    1.75,
+    1.65
+  ],
+  "start_delay_s": [
+    0.0,
+    1.2
+  ],
+  "hard_separation_m": 0.95,
+  "dt_s": 0.1,
+  "sample_count_per_method": 1,
+  "seed": null,
+  "caveat": "确定性规则对比，非SAC；硬投影及到点吸附不是动力学可执行控制，不应转为实车指令"
+}
