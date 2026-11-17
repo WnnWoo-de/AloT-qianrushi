@@ -18,9 +18,13 @@ function withFallback(remoteCall, localCall, save) {
 }
 
 function eventPayload(event, source) {
+  const suffix = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)
+  const position = event.position || event.location || event.area || '未提供位置'
   return Object.assign({}, event, {
-    event_id: event.event_id || event.id,
-    type: event.type || event.event_type || event.alertType,
+    event_id: event.event_id || event.id || (source + '-' + suffix),
+    run_id: event.run_id || (source + '-run-' + suffix),
+    type: event.type || event.event_type || event.alertType || '护工上报',
+    position: typeof position === 'string' ? position : (position.name || '未提供位置'),
     source: event.source || source,
     timestamp: event.timestamp || event.created_at || event.createdAt
   })
@@ -114,10 +118,10 @@ function getManualAlerts() {
 }
 
 function addManualAlert(payload) {
-  if (!api.isServiceAvailable()) return local(store.addAlert(payload))
+  // 报警中心必须收到真实回执；断网或失败时不能只在本地伪造“已上报”。
+  if (!api.isServiceAvailable()) return Promise.reject(new Error('服务离线，报警尚未提交'))
   return api.createEvent(eventPayload(payload, 'caregiver'))
-    .then(function (item) { return store.addAlert(normalizeEvent(item || payload)) })
-    .catch(function () { return store.addAlert(payload) })
+    .then(function (item) { return store.addAlert(normalizeEvent(item)) })
 }
 
 function getTodos() {
@@ -243,7 +247,9 @@ function handleRealtimeMessage(message) {
     items.filter(Boolean).forEach(function (item) { store.upsertCenterAlert(normalizeEvent(item)) })
   } else if (message.type === 'task_update') {
     const items = Array.isArray(message.data) ? message.data : [message.data]
-    items.filter(Boolean).forEach(function (item) { store.upsertTodo(normalizeTask(item)) })
+    // 协同派单任务带 event_id/robot_id，只更新报警详情，不能污染护工个人待办。
+    items.filter(function (item) { return item && !item.event_id && !item.robot_id })
+      .forEach(function (item) { store.upsertTodo(normalizeTask(item)) })
   } else if (message.type === 'system_update') {
     store.setServiceCache('system', message.data)
   } else if (message.type === 'robot_update') {

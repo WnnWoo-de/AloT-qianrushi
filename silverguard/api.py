@@ -74,6 +74,12 @@ def install(app: FastAPI, hub):
     def ok(value):
         return {"code": 0, "message": "ok", "data": value}
 
+    def event_view(row):
+        return {**row, "id": row["event_id"], "location": row.get("location") or row["position"]}
+
+    def task_view(row):
+        return {**row, "id": row["task_id"], "robotId": row.get("robot_id")}
+
     def call(fn, *args):
         try:
             return ok(fn(*args))
@@ -99,20 +105,21 @@ def install(app: FastAPI, hub):
 
     @router.post("/events")
     def create_event(payload: EventCreate):
-        return call(store.create_event, payload.model_dump())
+        return call(lambda value: event_view(store.create_event(value)), payload.model_dump())
 
     @router.get("/events")
-    def events():
-        return ok(store.list("events"))
+    def events(source: str | None = None):
+        rows = store.list("events")
+        return ok([event_view(row) for row in rows if not source or row.get("source") == source])
 
     @router.get("/events/current")
     def current_event():
         rows = store.list("events")
-        return ok(rows[0] if rows else None)
+        return ok(event_view(rows[0]) if rows else None)
 
     @router.get("/events/{event_id}")
     def event(event_id: str):
-        return call(store.get, "events", event_id)
+        return call(lambda key: event_view(store.get("events", key)), event_id)
 
     @router.get("/events/{event_id}/trace")
     def trace(event_id: str):
@@ -121,7 +128,7 @@ def install(app: FastAPI, hub):
 
     @router.post("/events/{event_id}/confirm")
     def confirm(event_id: str, payload: Confirmation):
-        return call(store.confirm, event_id, payload.handled_by)
+        return call(lambda key, actor: event_view(store.confirm(key, actor)), event_id, payload.handled_by)
 
     @router.patch("/events/{event_id}")
     def patch_event(event_id: str, payload: EventPatch):
@@ -130,32 +137,32 @@ def install(app: FastAPI, hub):
             if not actor:
                 raise HTTPException(422, "护工确认须提供 handled_by")
             if payload.status == "处理中":
-                return call(store.start_care, event_id, actor)
-            return call(store.confirm, event_id, actor)
+                return call(lambda key, actor: event_view(store.start_care(key, actor)), event_id, actor)
+            return call(lambda key, actor: event_view(store.confirm(key, actor)), event_id, actor)
         if payload.popup_shown is not None:
-            return call(store.mark_popup, event_id, payload.popup_shown)
+            return call(lambda key, shown: event_view(store.mark_popup(key, shown)), event_id, payload.popup_shown)
         raise HTTPException(422, "未提供可更新字段")
 
     @router.get("/tasks")
     def tasks():
-        return ok(store.list("tasks"))
+        return ok([task_view(row) for row in store.list("tasks")])
 
     @router.get("/tasks/current")
     def current_task():
         rows = store.list("tasks")
-        return ok(rows[0] if rows else None)
+        return ok(task_view(rows[0]) if rows else None)
 
     @router.get("/tasks/{task_id}")
     def task(task_id: str):
-        return call(store.get, "tasks", task_id)
+        return call(lambda key: task_view(store.get("tasks", key)), task_id)
 
     @router.post("/tasks/{task_id}/dispatch")
     def dispatch(task_id: str):
-        return call(store.dispatch, task_id)
+        return call(lambda key: task_view(store.dispatch(key)), task_id)
 
     @router.patch("/tasks/{task_id}")
     def receipt(task_id: str, payload: Receipt):
-        return call(store.transition, task_id, payload.status, payload.robot_id, payload.reason)
+        return call(lambda key, state, robot, reason: task_view(store.transition(key, state, robot, reason)), task_id, payload.status, payload.robot_id, payload.reason)
 
     @router.post("/tasks")
     @router.delete("/tasks/{task_id}")

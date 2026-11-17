@@ -72,7 +72,15 @@ def main():
                 else:
                     raise AssertionError("云端未收到小车端事件广播")
             assert request(0, "POST", "/events", payload)["task_id"] == event["task_id"]
-            assert len(request(1, "GET", "/events")) == len(request(2, "GET", "/tasks")) == 1
+            assert len(request(1, "GET", "/events")) == 1
+            assert len(request(2, "GET", "/tasks")) == 1
+            # 护工个人待办与机器人任务分流，不能把护理待办写成机器人派单。
+            todo = request(2, "POST", "/care/todos", {"content": "交班记录"})
+            assert request(2, "GET", "/care/todos")[0]["task_id"] == todo["task_id"]
+            assert len(request(2, "GET", "/tasks")) == 1
+            request(2, "PATCH", "/care/todos/" + todo["task_id"], {"done": True, "status": "已完成"})
+            request(2, "DELETE", "/care/todos/" + todo["task_id"])
+            assert request(2, "GET", "/care/todos") == []
             # 重启小车服务，未结任务必须仍然存在。
             processes[0].terminate()
             processes[0].wait(timeout=10)
@@ -90,7 +98,7 @@ def main():
             assert request(2, "GET", "/events/current")["status"] == "已处理"
             trace = request(1, "GET", "/events/controlled-001/trace")
             assert len(trace) == 8
-            print(json.dumps({"scope": "software-only", "services": 3, "event_count": 1, "task_count": 1, "trace_records": len(trace), "cross_process_websocket": "passed", "open_and_final_restart_recovery": "passed"}, ensure_ascii=False))
+            print(json.dumps({"scope": "software-only", "services": 3, "event_count": 1, "task_count": 1, "trace_records": len(trace), "care_todos_separated": "passed", "cross_process_websocket": "passed", "open_and_final_restart_recovery": "passed"}, ensure_ascii=False))
         except BaseException:
             log.flush()
             print((root / "services.log").read_text(encoding="utf-8"), file=sys.stderr)
